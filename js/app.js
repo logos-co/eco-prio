@@ -305,68 +305,117 @@ function renderErrorState(message) {
 
   const noPat = !hasPAT();
   const looksLikeRateOrAuth = /rate.limit|unauthorized|forbidden|bad.credential|read:project|requires/i.test(message);
-  const showPatCta = noPat || looksLikeRateOrAuth;
+  const showPatFlow = noPat || looksLikeRateOrAuth;
 
   content.innerHTML = `
-    <div class="max-w-2xl mx-auto mt-20 px-6">
-      <div style="background:rgba(255,255,255,0.8);border:1px solid rgba(228,105,98,0.4);border-radius:14px;padding:2.5rem;box-shadow:0 4px 24px rgba(228,105,98,0.08);">
+    <div class="max-w-xl mx-auto mt-20 px-6">
+      <div style="background:rgba(255,255,255,0.85);border:1px solid rgba(228,105,98,0.35);border-radius:14px;padding:2.5rem;box-shadow:0 4px 24px rgba(14,38,24,0.07);">
 
-        <!-- Icon + title -->
-        <div class="flex items-center gap-4 mb-5">
-          <div class="flex-none w-12 h-12 flex items-center justify-center rounded-xl" style="background:rgba(228,105,98,0.12);">
-            <svg class="w-6 h-6" style="color:#E46962;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
+        <!-- Title -->
+        <h2 class="text-2xl font-bold mb-1" style="font-family:'Times New Roman',Times,serif;color:#0E2618;">
+          ${showPatFlow ? 'GitHub token required' : 'Failed to load project'}
+        </h2>
+        <p class="text-sm mb-6" style="color:#808C78;font-family:Arial,Helvetica,sans-serif;">
+          ${showPatFlow
+            ? 'The GitHub API requires a Personal Access Token to load this project.'
+            : escapeHtml(message)}
+        </p>
+
+        ${showPatFlow ? `
+        <!-- Step-by-step PAT flow -->
+        <div class="space-y-4">
+
+          <!-- Step 1 -->
+          <div class="flex gap-4 items-start">
+            <span class="flex-none w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
+                  style="background:#E46962;color:white;font-family:Arial,Helvetica,sans-serif;">1</span>
+            <div class="flex-1 pt-0.5">
+              <p class="text-sm font-semibold mb-1" style="color:#0E2618;font-family:'Times New Roman',Times,serif;">Generate a token on GitHub</p>
+              <p class="text-xs mb-2" style="color:#4E635E;font-family:Arial,Helvetica,sans-serif;">
+                Needs <code style="background:rgba(78,99,94,0.1);padding:0.1em 0.3em;border-radius:3px;">read:project</code> and
+                <code style="background:rgba(78,99,94,0.1);padding:0.1em 0.3em;border-radius:3px;">public_repo</code> scopes.
+              </p>
+              <a href="https://github.com/settings/personal-access-tokens/new?description=Priority+Pipeline&scopes=read:project,public_repo"
+                 target="_blank" rel="noopener"
+                 style="display:inline-flex;align-items:center;gap:0.4rem;font-size:0.8rem;font-family:Arial,Helvetica,sans-serif;color:#E46962;text-decoration:underline;text-underline-offset:2px;"
+                 onmouseover="this.style.color='#FA7B17'" onmouseout="this.style.color='#E46962'">
+                Open GitHub token page ↗
+              </a>
+            </div>
           </div>
-          <div>
-            <h2 class="text-xl font-bold" style="font-family:'Times New Roman',Times,serif;color:#0E2618;">Failed to load project</h2>
-            <p class="text-sm mt-0.5" style="color:#808C78;font-family:Arial,Helvetica,sans-serif;">${escapeHtml(message)}</p>
+
+          <!-- Divider -->
+          <div style="border-left:2px dashed rgba(78,99,94,0.2);margin-left:0.875rem;height:0.75rem;"></div>
+
+          <!-- Step 2 -->
+          <div class="flex gap-4 items-start">
+            <span class="flex-none w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
+                  style="background:#E46962;color:white;font-family:Arial,Helvetica,sans-serif;">2</span>
+            <div class="flex-1 pt-0.5">
+              <p class="text-sm font-semibold mb-2" style="color:#0E2618;font-family:'Times New Roman',Times,serif;">Paste your token</p>
+              <div class="relative">
+                <input id="inline-pat-input" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                       style="width:100%;background:rgba(255,255,255,0.9);border:1px solid rgba(78,99,94,0.35);border-radius:7px;padding:0.6rem 2.5rem 0.6rem 0.75rem;font-size:0.875rem;font-family:Arial,Helvetica,sans-serif;color:#0E2618;outline:none;"
+                       onfocus="this.style.borderColor='#E46962'" onblur="this.style.borderColor='rgba(78,99,94,0.35)'"
+                       onkeydown="if(event.key==='Enter')window._saveInlinePat()" />
+                <button onclick="const i=document.getElementById('inline-pat-input');i.type=i.type==='password'?'text':'password'"
+                        style="position:absolute;right:0.6rem;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#808C78;padding:0.2rem;">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
+
+          <!-- Divider -->
+          <div style="border-left:2px dashed rgba(78,99,94,0.2);margin-left:0.875rem;height:0.75rem;"></div>
+
+          <!-- Step 3 -->
+          <div class="flex gap-4 items-start">
+            <span class="flex-none w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
+                  style="background:#E46962;color:white;font-family:Arial,Helvetica,sans-serif;">3</span>
+            <div class="flex-1 pt-0.5">
+              <p class="text-sm font-semibold mb-2" style="color:#0E2618;font-family:'Times New Roman',Times,serif;">Save &amp; reload</p>
+              <button onclick="window._saveInlinePat()"
+                      style="background:#E46962;color:white;font-family:Arial,Helvetica,sans-serif;border-radius:7px;padding:0.55rem 1.25rem;font-size:0.875rem;font-weight:600;border:none;cursor:pointer;"
+                      onmouseover="this.style.background='#FA7B17'" onmouseout="this.style.background='#E46962'">
+                Save &amp; Load Project
+              </button>
+            </div>
+          </div>
+
         </div>
-
-        ${showPatCta ? `
-        <!-- PAT guidance -->
-        <div style="background:rgba(221,222,216,0.6);border:1px solid rgba(78,99,94,0.2);border-radius:10px;padding:1.25rem;" class="mb-5">
-          <p class="text-sm font-semibold mb-1" style="color:#0E2618;font-family:'Times New Roman',Times,serif;">
-            ${noPat ? 'A Personal Access Token is required' : 'Your token may be missing or expired'}
-          </p>
-          <p class="text-sm mb-3" style="color:#4E635E;font-family:Arial,Helvetica,sans-serif;">
-            GitHub's API requires a PAT with <code style="background:rgba(78,99,94,0.12);padding:0.1em 0.3em;border-radius:3px;font-size:0.82em;">read:project</code> and
-            <code style="background:rgba(78,99,94,0.12);padding:0.1em 0.3em;border-radius:3px;font-size:0.82em;">public_repo</code> scopes
-            to fetch project data. Without it, requests are rate-limited and may fail.
-          </p>
-          <div class="flex items-center gap-3 flex-wrap">
-            <button onclick="document.getElementById('btn-settings').click()"
-                    style="background:#E46962;color:white;font-family:Arial,Helvetica,sans-serif;border-radius:6px;padding:0.5rem 1rem;font-size:0.875rem;font-weight:600;border:none;cursor:pointer;"
-                    onmouseover="this.style.background='#FA7B17'" onmouseout="this.style.background='#E46962'">
-              Add a PAT in Settings
-            </button>
-            <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener"
-               style="font-size:0.8rem;color:#808C78;font-family:Arial,Helvetica,sans-serif;text-decoration:underline;text-underline-offset:2px;">
-              Generate token on GitHub ↗
-            </a>
-          </div>
-        </div>
-        ` : ''}
-
-        <!-- Secondary actions -->
+        ` : `
         <div class="flex items-center gap-3">
           <button onclick="window._retryLoad()"
                   style="font-size:0.875rem;color:#4E635E;font-family:Arial,Helvetica,sans-serif;background:rgba(78,99,94,0.1);border:1px solid rgba(78,99,94,0.25);border-radius:6px;padding:0.4rem 0.9rem;cursor:pointer;"
                   onmouseover="this.style.background='rgba(78,99,94,0.18)'" onmouseout="this.style.background='rgba(78,99,94,0.1)'">
             Retry
           </button>
-          ${!showPatCta ? `
           <button onclick="document.getElementById('btn-settings').click()"
                   style="font-size:0.875rem;color:#808C78;font-family:Arial,Helvetica,sans-serif;background:none;border:none;cursor:pointer;text-decoration:underline;text-underline-offset:2px;">
             Check Settings
           </button>
-          ` : ''}
         </div>
+        `}
 
       </div>
     </div>
   `;
+
+  if (showPatFlow) {
+    window._saveInlinePat = async () => {
+      const val = document.getElementById('inline-pat-input')?.value.trim();
+      if (!val) { document.getElementById('inline-pat-input')?.focus(); return; }
+      saveConfig({ pat: val });
+      updateHeaderBadges();
+      await loadProject();
+    };
+    // Focus the input after render
+    setTimeout(() => document.getElementById('inline-pat-input')?.focus(), 50);
+  }
 }
 
 // ---------------------------------------------------------------------------
