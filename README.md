@@ -10,21 +10,30 @@ Pre-configured for [logos-co / project 12](https://github.com/orgs/logos-co/proj
 npx serve .
 ```
 
-Or with Python:
+Then open http://localhost:3000.
 
-```sh
-python3 -m http.server 8080
-```
-
-Then open http://localhost:8080 (or http://localhost:3000 with `npx serve`).
-
-> The app uses ES modules, so it must be served over HTTP — opening `index.html` directly as a `file://` URL will not work.
+> The app uses ES modules and must be served over HTTP — opening `index.html` directly as a `file://` URL will not work.
 
 ## Usage
 
 - **View**: opens read-only against the default project (`logos-co` / `#12`) — no auth needed.
-- **Settings** (gear icon): change owner, project number, or add a PAT.
-- **PAT**: optional. Required only for drag-to-reorder and label mutations. Needs `public_repo` scope. Stored in `localStorage` only.
+- **Settings** (gear icon): change owner, project number, or add tokens.
+- **Read-only token**: `read:project` scope. Authenticated reads, higher rate limit.
+- **Read+write token**: `public_repo` + `read:project` scopes. Enables drag-to-reorder, label edits, and adding dependencies.
+
+### Dependency format
+
+Add a `## Dependencies` section to an epic issue body:
+
+```markdown
+## Dependencies
+- dogfooding: https://github.com/logos-co/ecosystem/issues/42
+- docs: TODO
+- lez: https://github.com/logos-blockchain/logos-execution-zone/issues/45
+```
+
+- `TODO` = team is a dependency but no tracking issue linked yet
+- A URL = issue state is fetched; open → pending, closed → done
 
 ## Deploy
 

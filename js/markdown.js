@@ -1,80 +1,105 @@
 /**
- * markdown.js — Markdown rendering and dependency issue extraction
+ * markdown.js — Markdown rendering and dependency parsing
+ *
+ * Expected dependency format in issue body:
+ *
+ *   ## Dependencies
+ *   - team name: https://github.com/owner/repo/issues/123
+ *   - docs: TODO
+ *   - lez: https://github.com/logos-blockchain/logos-execution-zone/issues/45
  */
 
 /**
  * Render markdown to HTML using marked.js (available from CDN as window.marked).
- * @param {string} text
- * @returns {string} HTML string
  */
 export function renderMarkdown(text) {
-  if (!text) return '<em class="text-slate-500">No description provided.</em>';
+  if (!text) return '<em class="text-muted" style="font-family:Arial,Helvetica,sans-serif;">No description provided.</em>';
   if (typeof marked === 'undefined') {
-    // Fallback: escape HTML and wrap in pre
-    return `<pre class="whitespace-pre-wrap text-sm text-slate-300">${escapeHtml(text)}</pre>`;
+    return `<pre class="whitespace-pre-wrap text-sm text-warmgray">${escapeHtml(text)}</pre>`;
   }
-
-  // Configure marked for safe rendering
-  marked.setOptions({
-    breaks: true,
-    gfm: true,
-  });
-
+  marked.setOptions({ breaks: true, gfm: true });
   return marked.parse(text);
 }
 
 /**
- * Extract dependency issue references from a GitHub issue body.
- * Handles GitHub task-list syntax:
- *   - [ ] owner/repo#123
- *   - [x] owner/repo#123
- *   - [ ] https://github.com/owner/repo/issues/123
+ * Extract the raw text of the ## Dependencies section from an issue body.
+ * Returns empty string if no such section exists.
+ */
+function extractDepsSection(body) {
+  if (!body) return '';
+  // Match ## Dependencies (any h1-h3 level) up to the next heading or end of string
+  const m = body.match(/^#{1,3}\s+Dependencies[ \t]*\r?\n([\s\S]*?)(?=^#{1,3}\s|\s*$)/m);
+  return m ? m[1] : '';
+}
+
+/**
+ * Parse dependencies from an issue body.
+ * Only reads from the ## Dependencies section.
  *
- * @param {string} body - issue body text
- * @returns {Array<{checked: boolean, owner: string, repo: string, number: number, raw: string}>}
+ * Returns Array<{
+ *   team: string,
+ *   url: string|null,       — GitHub issue URL, or null if TODO
+ *   owner: string|null,
+ *   repo: string|null,
+ *   number: number|null,
+ * }>
  */
 export function extractDependencyIssues(body) {
-  if (!body) return [];
+  const section = extractDepsSection(body);
+  if (!section) return [];
 
   const deps = [];
-  const seen = new Set();
+  // Match lines like:  - team name: VALUE
+  const lineRe = /^-[ \t]+([^:\r\n]+):[ \t]+(.+)$/gm;
+  let m;
+  while ((m = lineRe.exec(section)) !== null) {
+    const team = m[1].trim();
+    const value = m[2].trim();
 
-  // Pattern 1: - [ ] owner/repo#123 or - [x] owner/repo#123
-  const taskListRegex = /- \[([ xX])\] (?:https:\/\/github\.com\/)?([\w.-]+)\/([\w.-]+)#(\d+)/g;
-  let match;
-  while ((match = taskListRegex.exec(body)) !== null) {
-    const checked = match[1].toLowerCase() === 'x';
-    const owner = match[2];
-    const repo = match[3];
-    const number = parseInt(match[4], 10);
-    const key = `${owner}/${repo}#${number}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      deps.push({ checked, owner, repo, number, raw: match[0] });
+    if (!team) continue;
+
+    if (value.toUpperCase() === 'TODO') {
+      deps.push({ team, url: null, owner: null, repo: null, number: null });
+    } else {
+      const urlM = value.match(/https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/issues\/(\d+)/);
+      if (urlM) {
+        deps.push({
+          team,
+          url: value,
+          owner: urlM[1],
+          repo: urlM[2],
+          number: parseInt(urlM[3], 10),
+        });
+      }
+      // Lines with unrecognised values are silently skipped
     }
   }
-
-  // Pattern 2: - [ ] https://github.com/owner/repo/issues/123
-  const urlRegex = /- \[([ xX])\] https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/issues\/(\d+)/g;
-  while ((match = urlRegex.exec(body)) !== null) {
-    const checked = match[1].toLowerCase() === 'x';
-    const owner = match[2];
-    const repo = match[3];
-    const number = parseInt(match[4], 10);
-    const key = `${owner}/${repo}#${number}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      deps.push({ checked, owner, repo, number, raw: match[0] });
-    }
-  }
-
   return deps;
 }
 
 /**
+ * Add a dependency entry to the issue body.
+ * Appends under existing ## Dependencies section, or creates the section.
+ *
+ * @param {string} body        — current issue body
+ * @param {string} team        — team name
+ * @param {string|null} url    — GitHub issue URL or null → writes "TODO"
+ * @returns {string} updated body
+ */
+export function addDepToBody(body, team, url) {
+  const line = `- ${team}: ${url || 'TODO'}`;
+  const sectionRe = /(^#{1,3}\s+Dependencies[ \t]*\r?\n)([\s\S]*?)(?=\n#{1,3}\s|$)/m;
+
+  if (sectionRe.test(body)) {
+    return body.replace(sectionRe, (_, header, content) =>
+      `${header}${content.trimEnd()}\n${line}\n`
+    );
+  }
+  return `${(body || '').trimEnd()}\n\n## Dependencies\n${line}\n`;
+}
+
+/**
  * Extract blocked:* label from an array of label nodes.
- * @param {Array<{name: string, color: string}>} labels
- * @returns {string|null} team name (part after "blocked:") or null
  */
 export function extractBlockedTeam(labels) {
   if (!labels || !labels.length) return null;
@@ -87,8 +112,6 @@ export function extractBlockedTeam(labels) {
 
 /**
  * Get all blocked:* labels from an array of label nodes.
- * @param {Array<{name: string, color: string}>} labels
- * @returns {Array<{name: string, team: string, color: string}>}
  */
 export function extractAllBlockedLabels(labels) {
   if (!labels || !labels.length) return [];
@@ -102,7 +125,7 @@ export function extractAllBlockedLabels(labels) {
 }
 
 function escapeHtml(str) {
-  return str
+  return String(str || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

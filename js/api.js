@@ -334,3 +334,19 @@ export async function removeLabel(owner, repo, issueNumber, label, pat) {
 export async function listRepoLabels(owner, repo, pat = '') {
   return restRequest(`/repos/${owner}/${repo}/labels?per_page=100`, {}, pat);
 }
+
+/**
+ * Update an issue's body.
+ * @param {string} owner
+ * @param {string} repo
+ * @param {number} issueNumber
+ * @param {string} body - full new body text
+ * @param {string} pat
+ */
+export async function updateIssueBody(owner, repo, issueNumber, body, pat) {
+  return restRequest(`/repos/${owner}/${repo}/issues/${issueNumber}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body }),
+  }, pat);
+}

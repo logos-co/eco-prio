@@ -1,77 +1,58 @@
 /**
- * detail.js — Journey detail / drill-down view rendering
+ * detail.js — Journey detail / drill-down view
  */
 
-import { fetchIssuesBatch, addLabels, removeLabel, fetchIssue } from './api.js';
-import { renderMarkdown, extractDependencyIssues, extractAllBlockedLabels } from './markdown.js';
-import { getConfig, hasPAT } from './config.js';
+import { fetchIssuesBatch, addLabels, removeLabel, fetchIssue, updateIssueBody } from './api.js';
+import { renderMarkdown, extractDependencyIssues, extractAllBlockedLabels, addDepToBody } from './markdown.js';
+import { getConfig, getReadPAT, getWritePAT, hasPAT, hasWritePAT } from './config.js';
 import { teamColor, statusBadge, showToast } from './app.js';
+import { REPO_TEAMS } from './teams.js';
 
-// Track open detail panels
+// Track open detail panels and their item references
 const openDetails = new Set();
+const itemRegistry = new Map(); // itemId → item (for body refresh after mutations)
 
-/**
- * Toggle the detail panel for a journey item.
- * @param {string} itemId - project item id
- * @param {Object} item - project item node
- */
 export async function toggleDetail(itemId, item) {
   const panel = document.getElementById(`detail-${itemId}`);
   if (!panel) return;
 
   if (openDetails.has(itemId)) {
-    closeDetail(itemId, panel);
+    openDetails.delete(itemId);
+    panel.innerHTML = '';
+    panel.classList.add('hidden');
+    const chevron = document.getElementById(`chevron-${itemId}`);
+    if (chevron) chevron.classList.remove('rotate-180');
   } else {
     openDetails.add(itemId);
-    await openDetail(itemId, item, panel);
+    itemRegistry.set(itemId, item);
+    panel.classList.remove('hidden');
+    const chevron = document.getElementById(`chevron-${itemId}`);
+    if (chevron) chevron.classList.add('rotate-180');
+    panel.innerHTML = renderDetailShell(item);
+    await loadDependencies(itemId, item);
   }
 }
 
-function closeDetail(itemId, panel) {
-  openDetails.delete(itemId);
-  panel.innerHTML = '';
-  panel.classList.add('hidden');
-
-  // Rotate chevron back
-  const chevron = document.getElementById(`chevron-${itemId}`);
-  if (chevron) chevron.classList.remove('rotate-180');
-}
-
-async function openDetail(itemId, item, panel) {
-  const issue = item.content;
-  if (!issue) return;
-
-  panel.classList.remove('hidden');
-
-  // Rotate chevron
-  const chevron = document.getElementById(`chevron-${itemId}`);
-  if (chevron) chevron.classList.add('rotate-180');
-
-  // Render initial shell with markdown body
-  panel.innerHTML = renderDetailShell(item);
-
-  // Load deps
-  await loadDependencies(itemId, item, panel);
-}
+// ---------------------------------------------------------------------------
+// Shell
+// ---------------------------------------------------------------------------
 
 function renderDetailShell(item) {
   const issue = item.content;
-  const canEdit = hasPAT();
+  const canWrite = hasWritePAT();
   const blockedLabels = extractAllBlockedLabels(issue.labels?.nodes || []);
 
   return `
     <div class="detail-panel" style="border-top:1px solid rgba(78,99,94,0.3);background:rgba(12,43,45,0.4);">
       <div class="max-w-5xl mx-auto p-6 space-y-6">
 
-        <!-- Header row -->
+        <!-- Header -->
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2 text-xs text-muted mb-1.5" style="font-family:Arial,Helvetica,sans-serif;">
               <span>${issue.repository?.nameWithOwner || ''}</span>
-              <span>·</span>
-              <span>#${issue.number}</span>
-              <span>·</span>
-              ${statusBadge(issue.state)}
+              <span>·</span><span>#${issue.number}</span>
+              <span>·</span>${statusBadge(issue.state)}
             </div>
             <h2 class="text-xl font-bold text-parchment leading-snug" style="font-family:'Times New Roman',Times,serif;">${escapeHtml(issue.title)}</h2>
           </div>
@@ -87,12 +68,12 @@ function renderDetailShell(item) {
           </a>
         </div>
 
-        <!-- Blocked labels section -->
+        <!-- Blocked labels -->
         <div class="flex items-start gap-3">
           <span class="text-xs font-medium text-muted pt-1 w-24 flex-none" style="font-family:Arial,Helvetica,sans-serif;">Blocking team</span>
           <div id="blocked-labels-${item.id}" class="flex flex-wrap gap-2">
-            ${renderBlockedLabels(blockedLabels, item, canEdit)}
-            ${canEdit ? renderAddLabelButton(item) : ''}
+            ${renderBlockedLabels(blockedLabels, item, canWrite)}
+            ${canWrite ? renderAddLabelButton(item) : ''}
           </div>
         </div>
 
@@ -107,19 +88,24 @@ function renderDetailShell(item) {
           </div>
         </div>
 
-        <!-- Dependency issues -->
+        <!-- Dependencies -->
         <div>
-          <h3 class="text-xs font-semibold text-muted uppercase tracking-wider mb-3" style="font-family:Arial,Helvetica,sans-serif;">
-            Linked Issues
-            <span id="dep-count-${item.id}" class="ml-2 text-xs font-normal text-muted/60"></span>
-          </h3>
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-xs font-semibold text-muted uppercase tracking-wider" style="font-family:Arial,Helvetica,sans-serif;">
+              Dependencies
+              <span id="dep-count-${item.id}" class="ml-2 font-normal normal-case"></span>
+            </h3>
+            ${canWrite ? renderAddDepButton(item) : ''}
+          </div>
+          <!-- Add dep form (hidden by default) -->
+          ${canWrite ? renderAddDepForm(item) : ''}
           <div id="dep-list-${item.id}" class="space-y-2">
             <div class="flex items-center gap-2 text-muted text-sm py-2" style="font-family:Arial,Helvetica,sans-serif;">
               <svg class="w-4 h-4 animate-spin text-coral" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
               </svg>
-              Loading linked issues…
+              Loading…
             </div>
           </div>
         </div>
@@ -129,18 +115,20 @@ function renderDetailShell(item) {
   `;
 }
 
-function renderBlockedLabels(blockedLabels, item, canEdit) {
+// ---------------------------------------------------------------------------
+// Blocked labels
+// ---------------------------------------------------------------------------
+
+function renderBlockedLabels(blockedLabels, item, canWrite) {
   if (!blockedLabels.length) {
-    return `<span class="text-xs text-muted italic" style="font-family:Arial,Helvetica,sans-serif;">No blocking team assigned</span>`;
+    return `<span class="text-xs text-muted italic" style="font-family:Arial,Helvetica,sans-serif;">None</span>`;
   }
   return blockedLabels.map(bl => `
     <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium border"
           style="background:${teamColor(bl.team, 0.15)};border-color:${teamColor(bl.team, 0.4)};color:${teamColor(bl.team, 1)};font-family:Arial,Helvetica,sans-serif;">
       ${escapeHtml(bl.team)}
-      ${canEdit ? `
-        <button onclick="window._removeBlockedLabel('${item.id}', '${escapeHtml(bl.name)}')"
-                title="Remove label"
-                class="ml-0.5 hover:opacity-75 transition-opacity">
+      ${canWrite ? `
+        <button onclick="window._removeBlockedLabel('${item.id}', '${escapeHtml(bl.name)}')" title="Remove" class="ml-0.5 hover:opacity-75 transition-opacity">
           <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
@@ -164,22 +152,79 @@ function renderAddLabelButton(item) {
       Add blocked:* label
     </button>
     <div id="add-label-form-${item.id}" class="hidden items-center gap-2" style="display:none">
-      <input id="add-label-input-${item.id}"
-             type="text"
-             placeholder="team-name"
-             class="logos-input text-xs w-36 py-1"
-      />
+      <input id="add-label-input-${item.id}" type="text" placeholder="team-name" class="logos-input text-xs w-36 py-1" />
       <button onclick="window._submitAddLabel('${item.id}', '${escapeHtml(item.content?.repository?.nameWithOwner || '')}', ${item.content?.number || 0})"
-              class="text-xs text-white px-2.5 py-1 rounded transition-colors" style="background:#E46962;font-family:Arial,Helvetica,sans-serif;"
-              onmouseover="this.style.background='#FA7B17'" onmouseout="this.style.background='#E46962'">
-        Add
-      </button>
-      <button onclick="window._cancelAddLabel('${item.id}')" class="text-xs text-muted hover:text-parchment transition-colors" style="font-family:Arial,Helvetica,sans-serif;">
-        Cancel
-      </button>
+              class="text-xs text-white px-2.5 py-1 rounded transition-colors" style="background:#E46962;"
+              onmouseover="this.style.background='#FA7B17'" onmouseout="this.style.background='#E46962'">Add</button>
+      <button onclick="window._cancelAddLabel('${item.id}')" class="text-xs text-muted hover:text-parchment transition-colors">Cancel</button>
     </div>
   `;
 }
+
+// ---------------------------------------------------------------------------
+// Add dependency
+// ---------------------------------------------------------------------------
+
+function renderAddDepButton(item) {
+  return `
+    <button onclick="window._showAddDepForm('${item.id}')"
+            id="add-dep-btn-${item.id}"
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs text-muted transition-colors"
+            style="border:1px dashed rgba(78,99,94,0.4);font-family:Arial,Helvetica,sans-serif;"
+            onmouseover="this.style.borderColor='rgba(228,105,98,0.5)';this.style.color='#E46962'"
+            onmouseout="this.style.borderColor='rgba(78,99,94,0.4)';this.style.color='#808C78'">
+      <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+      </svg>
+      Add dependency
+    </button>
+  `;
+}
+
+function renderAddDepForm(item) {
+  const repoWithOwner = escapeHtml(item.content?.repository?.nameWithOwner || '');
+  const issueNumber = item.content?.number || 0;
+  return `
+    <div id="add-dep-form-${item.id}" style="display:none;" class="mb-3 p-4 rounded space-y-3"
+         style="background:rgba(14,38,24,0.6);border:1px solid rgba(78,99,94,0.3);">
+      <div style="background:rgba(14,38,24,0.6);border:1px solid rgba(78,99,94,0.3);border-radius:8px;padding:1rem;">
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-medium text-parchment mb-1" style="font-family:Arial,Helvetica,sans-serif;">
+              Team <span class="text-coral">*</span>
+            </label>
+            <input id="add-dep-team-${item.id}" type="text" placeholder="e.g. docs"
+                   class="logos-input w-full text-sm" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-parchment mb-1" style="font-family:Arial,Helvetica,sans-serif;">
+              GitHub issue URL <span class="text-muted">(optional — leave blank to track as TODO)</span>
+            </label>
+            <input id="add-dep-url-${item.id}" type="url"
+                   placeholder="https://github.com/owner/repo/issues/123"
+                   class="logos-input w-full text-sm"
+                   oninput="window._autoResolveDepTeam('${item.id}')" />
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="window._submitAddDep('${item.id}', '${repoWithOwner}', ${issueNumber})"
+                    class="text-sm text-white px-3 py-1.5 rounded transition-colors" style="background:#E46962;font-family:Arial,Helvetica,sans-serif;"
+                    onmouseover="this.style.background='#FA7B17'" onmouseout="this.style.background='#E46962'">
+              Add
+            </button>
+            <button onclick="window._cancelAddDep('${item.id}')"
+                    class="text-sm text-muted hover:text-parchment transition-colors" style="font-family:Arial,Helvetica,sans-serif;">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Assignees
+// ---------------------------------------------------------------------------
 
 function renderAssignees(issue) {
   const assignees = issue.assignees?.nodes || [];
@@ -190,10 +235,8 @@ function renderAssignees(issue) {
       <div class="flex items-center gap-2">
         ${assignees.map(a => `
           <a href="https://github.com/${a.login}" target="_blank" rel="noopener"
-             title="${escapeHtml(a.login)}"
              class="flex items-center gap-1.5 text-xs text-muted hover:text-parchment transition-colors" style="font-family:Arial,Helvetica,sans-serif;">
-            <img src="${a.avatarUrl}&s=32" alt="${escapeHtml(a.login)}"
-                 class="w-5 h-5 rounded-full" style="ring:1px solid rgba(78,99,94,0.5);" />
+            <img src="${a.avatarUrl}&s=32" alt="${escapeHtml(a.login)}" class="w-5 h-5 rounded-full" />
             ${escapeHtml(a.login)}
           </a>
         `).join('')}
@@ -202,68 +245,115 @@ function renderAssignees(issue) {
   `;
 }
 
-async function loadDependencies(itemId, item, panel) {
-  const issue = item.content;
-  if (!issue || !issue.body) {
-    const el = document.getElementById(`dep-list-${item.id}`);
-    if (el) el.innerHTML = '<p class="text-sm text-muted italic" style="font-family:Arial,Helvetica,sans-serif;">No linked issues found in description.</p>';
-    return;
-  }
+// ---------------------------------------------------------------------------
+// Dependency loading
+// ---------------------------------------------------------------------------
 
-  const deps = extractDependencyIssues(issue.body);
-  const countEl = document.getElementById(`dep-count-${item.id}`);
-  if (countEl) countEl.textContent = deps.length ? `(${deps.length})` : '';
-
-  const listEl = document.getElementById(`dep-list-${item.id}`);
+async function loadDependencies(itemId, item, bodyOverride) {
+  const body = bodyOverride ?? item.content?.body ?? '';
+  const listEl = document.getElementById(`dep-list-${itemId}`);
+  const countEl = document.getElementById(`dep-count-${itemId}`);
   if (!listEl) return;
 
-  if (deps.length === 0) {
-    listEl.innerHTML = '<p class="text-sm text-muted italic" style="font-family:Arial,Helvetica,sans-serif;">No linked issues found in description.</p>';
+  const deps = extractDependencyIssues(body);
+  if (countEl) countEl.textContent = deps.length ? `(${deps.length})` : '';
+
+  if (!deps.length) {
+    listEl.innerHTML = `<p class="text-sm text-muted italic" style="font-family:Arial,Helvetica,sans-serif;">No dependencies listed. ${hasWritePAT() ? 'Use "Add dependency" to track one.' : ''}</p>`;
     return;
   }
 
-  const { pat } = getConfig();
-  const refs = deps.map(d => ({ owner: d.owner, repo: d.repo, number: d.number }));
-  const results = await fetchIssuesBatch(refs, pat);
+  // Fetch only URL-based deps
+  const urlDeps = deps.filter(d => d.url);
+  const pat = getReadPAT();
+  const refs = urlDeps.map(d => ({ owner: d.owner, repo: d.repo, number: d.number }));
+  const results = urlDeps.length ? await fetchIssuesBatch(refs, pat) : [];
 
-  // Merge with dep metadata
-  const enriched = results.map((r, i) => ({
-    dep: deps[i],
-    issue: r.issue,
-    error: r.error,
-  }));
+  // Build lookup: "owner/repo#number" → fetched issue
+  const fetchedMap = new Map();
+  urlDeps.forEach((d, i) => {
+    fetchedMap.set(`${d.owner}/${d.repo}#${d.number}`, results[i]);
+  });
 
-  listEl.innerHTML = enriched.map(({ dep, issue, error }) => {
-    if (error) {
-      return renderDepError(dep, error);
-    }
-    return renderDepIssue(dep, issue);
-  }).join('');
+  // Group by team (team is now explicit in dep)
+  const teamGroups = new Map();
+  for (const dep of deps) {
+    if (!teamGroups.has(dep.team)) teamGroups.set(dep.team, []);
+    const fetched = dep.url ? fetchedMap.get(`${dep.owner}/${dep.repo}#${dep.number}`) : null;
+    teamGroups.get(dep.team).push({ dep, fetched });
+  }
+
+  // Sort: teams with pending first, then not-tracked, then done
+  const sorted = [...teamGroups.entries()].sort(([, a], [, b]) => {
+    const score = (entries) => {
+      if (entries.some(e => e.fetched?.error || e.fetched?.issue?.state === 'open')) return 2;
+      if (entries.some(e => !e.dep.url)) return 1;
+      return 0;
+    };
+    return score(b) - score(a);
+  });
+
+  listEl.innerHTML = sorted.map(([team, entries]) => {
+    const pending    = entries.filter(e => e.fetched?.error || e.fetched?.issue?.state === 'open').length;
+    const done       = entries.filter(e => e.fetched && !e.fetched.error && e.fetched.issue?.state !== 'open').length;
+    const notTracked = entries.filter(e => !e.dep.url).length;
+
+    const parts = [];
+    if (pending)    parts.push(`${pending} pending`);
+    if (done)       parts.push(`${done} done`);
+    if (notTracked) parts.push(`${notTracked} not tracked`);
+
+    return `
+      <div class="space-y-1.5">
+        <div class="flex items-center gap-2 pt-1">
+          <span class="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded"
+                style="background:${teamColor(team, 0.15)};color:${teamColor(team, 0.9)};border:1px solid ${teamColor(team, 0.3)};font-family:Arial,Helvetica,sans-serif;">
+            ${escapeHtml(team)}
+          </span>
+          <span class="text-xs text-muted" style="font-family:Arial,Helvetica,sans-serif;">${parts.join(' · ')}</span>
+        </div>
+        ${entries.map(({ dep, fetched }) => {
+          if (!dep.url) return renderDepTodo(dep);
+          if (fetched?.error) return renderDepError(dep, fetched.error);
+          return renderDepIssue(dep, fetched.issue);
+        }).join('')}
+      </div>
+    `;
+  }).join('<hr class="logos-divider my-3" />');
+}
+
+// ---------------------------------------------------------------------------
+// Dep row renderers
+// ---------------------------------------------------------------------------
+
+function renderDepTodo(dep) {
+  return `
+    <div class="flex items-center gap-3 p-3 rounded"
+         style="background:rgba(14,38,24,0.35);border:1px solid rgba(78,99,94,0.2);opacity:0.75;">
+      <svg class="w-4 h-4 text-muted flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+        <circle cx="12" cy="12" r="10"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l2.5 2.5"/>
+      </svg>
+      <span class="text-sm text-muted italic flex-1" style="font-family:Arial,Helvetica,sans-serif;">No issue linked yet</span>
+      <span class="text-xs text-muted font-medium" style="font-family:Arial,Helvetica,sans-serif;">not tracked</span>
+    </div>
+  `;
 }
 
 function renderDepIssue(dep, issue) {
   const isOpen = issue.state === 'open';
   const assignees = issue.assignees || [];
   const labels = issue.labels || [];
-  const blockedTeam = labels.find(l => /^blocked:/i.test(l.name));
 
   return `
     <div class="flex items-start gap-3 p-3 rounded transition-colors"
          style="background:rgba(14,38,24,0.5);border:1px solid ${isOpen ? 'rgba(78,99,94,0.35)' : 'rgba(78,99,94,0.2)'};${!isOpen ? 'opacity:0.7;' : ''}"
          onmouseover="this.style.borderColor='rgba(78,99,94,0.6)'" onmouseout="this.style.borderColor='${isOpen ? 'rgba(78,99,94,0.35)' : 'rgba(78,99,94,0.2)'}'">
-      <!-- Status dot -->
       <div class="flex-none pt-0.5">
         ${isOpen
-          ? `<svg class="w-4 h-4 text-coral" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-               <circle cx="12" cy="12" r="10" /><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3" />
-             </svg>`
-          : `<svg class="w-4 h-4 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-               <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-             </svg>`
+          ? `<svg class="w-4 h-4 text-coral" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3"/></svg>`
+          : `<svg class="w-4 h-4 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`
         }
       </div>
-
-      <!-- Content -->
       <div class="flex-1 min-w-0">
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0">
@@ -272,17 +362,10 @@ function renderDepIssue(dep, issue) {
                onmouseover="this.style.color='#E46962'" onmouseout="this.style.color='#E2E0C9'">
               ${escapeHtml(issue.title)}
             </a>
-            <div class="flex items-center gap-2 mt-1 text-xs text-muted" style="font-family:Arial,Helvetica,sans-serif;">
-              <span>${dep.owner}/${dep.repo}#${dep.number}</span>
-              ${blockedTeam ? `
-                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs"
-                      style="background:${teamColor(blockedTeam.name.replace(/^blocked:/i,'').trim(), 0.15)};color:${teamColor(blockedTeam.name.replace(/^blocked:/i,'').trim(), 1)};font-family:Arial,Helvetica,sans-serif;">
-                  ${escapeHtml(blockedTeam.name)}
-                </span>
-              ` : ''}
+            <div class="text-xs text-muted mt-0.5" style="font-family:Arial,Helvetica,sans-serif;">
+              ${dep.owner}/${dep.repo}#${dep.number}
             </div>
           </div>
-          <!-- Assignees -->
           ${assignees.length ? `
             <div class="flex-none flex items-center gap-1">
               ${assignees.slice(0, 3).map(a => `
@@ -292,23 +375,19 @@ function renderDepIssue(dep, issue) {
             </div>
           ` : ''}
         </div>
-
-        <!-- Labels -->
         ${labels.length ? `
           <div class="flex flex-wrap gap-1.5 mt-2">
             ${labels.map(l => `
-              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium" style="font-family:Arial,Helvetica,sans-serif;"
-                    style="background:#${l.color}22;color:#${l.color};border:1px solid #${l.color}44">
+              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium"
+                    style="background:#${l.color}22;color:#${l.color};border:1px solid #${l.color}44;font-family:Arial,Helvetica,sans-serif;">
                 ${escapeHtml(l.name)}
               </span>
             `).join('')}
           </div>
         ` : ''}
       </div>
-
-      <!-- Checkbox status -->
-      <div class="flex-none text-xs font-medium pt-0.5" style="color:${dep.checked ? '#E46962' : '#808C78'};font-family:Arial,Helvetica,sans-serif;">
-        ${dep.checked ? '✓ done' : '○ open'}
+      <div class="flex-none text-xs font-medium pt-0.5" style="color:${isOpen ? '#E46962' : '#808C78'};font-family:Arial,Helvetica,sans-serif;">
+        ${isOpen ? 'pending' : 'done'}
       </div>
     </div>
   `;
@@ -316,72 +395,63 @@ function renderDepIssue(dep, issue) {
 
 function renderDepError(dep, error) {
   return `
-    <div class="flex items-center gap-3 p-3 rounded opacity-60" style="background:rgba(14,38,24,0.4);border:1px solid rgba(78,99,94,0.25);">
+    <div class="flex items-center gap-3 p-3 rounded opacity-60"
+         style="background:rgba(14,38,24,0.4);border:1px solid rgba(78,99,94,0.25);">
       <svg class="w-4 h-4 text-coral flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
       </svg>
       <div class="flex-1 min-w-0">
         <div class="text-sm text-parchment" style="font-family:'Times New Roman',Times,serif;">${dep.owner}/${dep.repo}#${dep.number}</div>
-        <div class="text-xs text-coral/80 mt-0.5" style="font-family:Arial,Helvetica,sans-serif;">${escapeHtml(error.message)}</div>
+        <div class="text-xs mt-0.5" style="color:#E46962;font-family:Arial,Helvetica,sans-serif;">${escapeHtml(error.message)}</div>
       </div>
-      <a href="https://github.com/${dep.owner}/${dep.repo}/issues/${dep.number}"
-         target="_blank" rel="noopener"
-         class="text-xs text-muted hover:text-parchment transition-colors" style="font-family:Arial,Helvetica,sans-serif;">
-        View →
-      </a>
+      <a href="https://github.com/${dep.owner}/${dep.repo}/issues/${dep.number}" target="_blank" rel="noopener"
+         class="text-xs text-muted hover:text-parchment transition-colors" style="font-family:Arial,Helvetica,sans-serif;">View →</a>
     </div>
   `;
 }
 
-/**
- * Register global handlers for inline label actions.
- * These are called from onclick attributes inside rendered HTML.
- */
-export function registerLabelHandlers() {
-  window._removeBlockedLabel = async (itemId, labelName) => {
-    const config = getConfig();
-    if (!config.pat) {
-      showToast('error', 'PAT required to modify labels');
-      return;
-    }
+// ---------------------------------------------------------------------------
+// Global handlers (called from onclick attributes in rendered HTML)
+// ---------------------------------------------------------------------------
 
-    // Find the item's repo and number from rendered data
+export function registerLabelHandlers() {
+
+  // -- Blocked label: remove --
+  window._removeBlockedLabel = async (itemId, labelName) => {
+    const pat = getWritePAT();
+    if (!pat) { showToast('error', 'Write token required to modify labels'); return; }
+
     const row = document.querySelector(`[data-item-id="${itemId}"]`);
     if (!row) return;
-    const repoWithOwner = row.dataset.repo || '';
+    const [owner, repo] = (row.dataset.repo || '').split('/');
     const issueNumber = parseInt(row.dataset.issue || '0', 10);
-    if (!repoWithOwner || !issueNumber) return;
-
-    const [owner, repo] = repoWithOwner.split('/');
+    if (!owner || !repo || !issueNumber) return;
 
     try {
-      await removeLabel(owner, repo, issueNumber, labelName, config.pat);
+      await removeLabel(owner, repo, issueNumber, labelName, pat);
       showToast('success', `Removed label "${labelName}"`);
-      // Refresh the label section
-      await refreshBlockedLabels(itemId, owner, repo, issueNumber, config.pat);
+      await refreshBlockedLabels(itemId, owner, repo, issueNumber, pat);
     } catch (err) {
       showToast('error', `Failed to remove label: ${err.message}`);
     }
   };
 
+  // -- Blocked label: show form --
   window._showAddLabelForm = (itemId) => {
-    const btn = document.getElementById(`add-label-btn-${itemId}`);
+    document.getElementById(`add-label-btn-${itemId}`)?.style.setProperty('display', 'none');
     const form = document.getElementById(`add-label-form-${itemId}`);
-    if (btn) btn.style.display = 'none';
     if (form) form.style.display = 'flex';
     const input = document.getElementById(`add-label-input-${itemId}`);
     if (input) {
       input.focus();
-      input.addEventListener('keydown', (e) => {
+      input.onkeydown = (e) => {
         if (e.key === 'Enter') {
           const row = document.querySelector(`[data-item-id="${itemId}"]`);
           if (!row) return;
-          const repoWithOwner = row.dataset.repo || '';
-          const issueNumber = parseInt(row.dataset.issue || '0', 10);
-          window._submitAddLabel(itemId, repoWithOwner, issueNumber);
+          window._submitAddLabel(itemId, row.dataset.repo, parseInt(row.dataset.issue || '0', 10));
         }
         if (e.key === 'Escape') window._cancelAddLabel(itemId);
-      });
+      };
     }
   };
 
@@ -392,90 +462,147 @@ export function registerLabelHandlers() {
     if (form) form.style.display = 'none';
   };
 
+  // -- Blocked label: submit --
   window._submitAddLabel = async (itemId, repoWithOwner, issueNumber) => {
     const input = document.getElementById(`add-label-input-${itemId}`);
-    if (!input) return;
-    const teamName = input.value.trim();
+    const teamName = input?.value.trim();
     if (!teamName) return;
 
-    const config = getConfig();
-    if (!config.pat) {
-      showToast('error', 'PAT required to modify labels');
-      return;
-    }
+    const pat = getWritePAT();
+    if (!pat) { showToast('error', 'Write token required'); return; }
 
-    const labelName = `blocked:${teamName}`;
-    const [owner, repo] = repoWithOwner.split('/');
-    if (!owner || !repo || !issueNumber) {
-      showToast('error', 'Could not determine issue repository');
-      return;
-    }
+    const [owner, repo] = (repoWithOwner || '').split('/');
+    if (!owner || !repo || !issueNumber) { showToast('error', 'Could not determine issue repository'); return; }
 
     try {
-      await addLabels(owner, repo, issueNumber, [labelName], config.pat);
-      showToast('success', `Added label "${labelName}"`);
+      await addLabels(owner, repo, issueNumber, [`blocked:${teamName}`], pat);
+      showToast('success', `Added label "blocked:${teamName}"`);
       window._cancelAddLabel(itemId);
-      await refreshBlockedLabels(itemId, owner, repo, issueNumber, config.pat);
+      await refreshBlockedLabels(itemId, owner, repo, issueNumber, pat);
     } catch (err) {
-      showToast('error', `Failed to add label: ${err.message}. The label may not exist in the repo yet.`);
+      showToast('error', `Failed: ${err.message}`);
+    }
+  };
+
+  // -- Add dependency: show form --
+  window._showAddDepForm = (itemId) => {
+    document.getElementById(`add-dep-btn-${itemId}`)?.style.setProperty('display', 'none');
+    const form = document.getElementById(`add-dep-form-${itemId}`);
+    if (form) form.style.display = 'block';
+    document.getElementById(`add-dep-team-${itemId}`)?.focus();
+  };
+
+  window._cancelAddDep = (itemId) => {
+    const btn = document.getElementById(`add-dep-btn-${itemId}`);
+    const form = document.getElementById(`add-dep-form-${itemId}`);
+    if (btn) btn.style.display = '';
+    if (form) form.style.display = 'none';
+    const teamInput = document.getElementById(`add-dep-team-${itemId}`);
+    const urlInput  = document.getElementById(`add-dep-url-${itemId}`);
+    if (teamInput) teamInput.value = '';
+    if (urlInput)  urlInput.value  = '';
+  };
+
+  // -- Add dependency: auto-resolve team from URL --
+  window._autoResolveDepTeam = (itemId) => {
+    const urlInput  = document.getElementById(`add-dep-url-${itemId}`);
+    const teamInput = document.getElementById(`add-dep-team-${itemId}`);
+    if (!urlInput || !teamInput || teamInput.value.trim()) return;
+    const m = urlInput.value.match(/https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/issues\/\d+/);
+    if (m) {
+      const resolved = REPO_TEAMS[`${m[1]}/${m[2]}`];
+      if (resolved) teamInput.value = resolved;
+    }
+  };
+
+  // -- Add dependency: submit --
+  window._submitAddDep = async (itemId, repoWithOwner, issueNumber) => {
+    const team = document.getElementById(`add-dep-team-${itemId}`)?.value.trim();
+    const url  = document.getElementById(`add-dep-url-${itemId}`)?.value.trim() || '';
+
+    if (!team) { showToast('error', 'Team name is required'); return; }
+
+    if (url) {
+      const validUrl = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+$/.test(url);
+      if (!validUrl) { showToast('error', 'Invalid GitHub issue URL'); return; }
+    }
+
+    const pat = getWritePAT();
+    if (!pat) { showToast('error', 'Write token required'); return; }
+
+    const [owner, repo] = (repoWithOwner || '').split('/');
+    if (!owner || !repo || !issueNumber) { showToast('error', 'Could not determine issue repository'); return; }
+
+    try {
+      const currentIssue = await fetchIssue(owner, repo, issueNumber, pat);
+      const newBody = addDepToBody(currentIssue.body || '', team, url || null);
+      await updateIssueBody(owner, repo, issueNumber, newBody, pat);
+
+      // Update cached body
+      const item = itemRegistry.get(itemId);
+      if (item?.content) item.content.body = newBody;
+
+      showToast('success', `Added dependency: ${team}`);
+      window._cancelAddDep(itemId);
+      await loadDependencies(itemId, item || { content: { body: newBody } });
+    } catch (err) {
+      showToast('error', `Failed to add dependency: ${err.message}`);
     }
   };
 }
 
+// ---------------------------------------------------------------------------
+// Refresh helpers
+// ---------------------------------------------------------------------------
+
 async function refreshBlockedLabels(itemId, owner, repo, issueNumber, pat) {
   try {
     const freshIssue = await fetchIssue(owner, repo, issueNumber, pat);
-    const labels = freshIssue.labels || [];
-    const blockedLabels = labels
+    const blockedLabels = (freshIssue.labels || [])
       .filter(l => /^blocked:/i.test(l.name))
-      .map(l => ({
-        name: l.name,
-        team: l.name.replace(/^blocked:/i, '').trim(),
-        color: l.color,
-      }));
+      .map(l => ({ name: l.name, team: l.name.replace(/^blocked:/i, '').trim(), color: l.color }));
 
     const container = document.getElementById(`blocked-labels-${itemId}`);
     if (!container) return;
 
-    const canEdit = hasPAT();
-
-    // Build a fake item for the render helpers
+    const canWrite = hasWritePAT();
     const fakeItem = { id: itemId, content: { repository: { nameWithOwner: `${owner}/${repo}` }, number: issueNumber } };
     container.innerHTML =
-      renderBlockedLabels(blockedLabels, fakeItem, canEdit) +
-      (canEdit ? renderAddLabelButton(fakeItem) : '');
+      renderBlockedLabels(blockedLabels, fakeItem, canWrite) +
+      (canWrite ? renderAddLabelButton(fakeItem) : '');
 
-    // Update the row's team badge too
+    // Update row badge
     const row = document.querySelector(`[data-item-id="${itemId}"]`);
     if (row) {
-      const teamBadge = row.querySelector('[data-team-badge]');
-      if (teamBadge) {
+      const badge = row.querySelector('[data-team-badge]');
+      if (badge) {
         const newTeam = blockedLabels[0]?.team || null;
         if (newTeam) {
-          teamBadge.textContent = newTeam;
-          teamBadge.style.background = teamColor(newTeam, 0.15);
-          teamBadge.style.borderColor = teamColor(newTeam, 0.4);
-          teamBadge.style.color = teamColor(newTeam, 1);
+          badge.textContent = newTeam;
+          badge.style.background = teamColor(newTeam, 0.15);
+          badge.style.borderColor = teamColor(newTeam, 0.4);
+          badge.style.color = teamColor(newTeam, 1);
         } else {
-          teamBadge.textContent = 'unblocked';
-          teamBadge.style.background = 'rgba(12,43,45,0.5)';
-          teamBadge.style.borderColor = 'rgba(78,99,94,0.3)';
-          teamBadge.style.color = '#808C78';
+          badge.textContent = 'none';
+          badge.style.background = 'rgba(12,43,45,0.5)';
+          badge.style.borderColor = 'rgba(78,99,94,0.3)';
+          badge.style.color = '#808C78';
         }
       }
     }
   } catch (err) {
-    // Silent fail on refresh
     console.warn('Failed to refresh labels:', err);
   }
 }
 
+// ---------------------------------------------------------------------------
+// Util
+// ---------------------------------------------------------------------------
+
 function escapeHtml(str) {
   if (!str) return '';
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
