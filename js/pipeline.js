@@ -23,9 +23,22 @@ export function renderPipeline(container, items, projectTitle) {
         </div>
       </div>
 
-      <div class="hidden md:grid md:grid-cols-[1fr_5rem_8rem_9rem_6rem] gap-4 px-4 py-2 text-xs font-semibold text-muted uppercase tracking-wider" style="font-family:Arial,Helvetica,sans-serif;border-bottom:1px solid rgba(78,99,94,0.3);">
+      <div class="hidden md:grid md:grid-cols-[1fr_minmax(5rem,auto)_8rem_9rem_6rem] gap-4 px-4 py-2 text-xs font-semibold text-muted uppercase tracking-wider" style="font-family:Arial,Helvetica,sans-serif;border-bottom:1px solid rgba(78,99,94,0.3);">
         <div>Journey</div>
-        <div>Deps</div>
+        <div class="flex flex-col gap-0.5">
+          <span>Deps</span>
+          <div class="flex items-center gap-2 font-normal normal-case tracking-normal" style="color:#808C78;">
+            <span class="flex items-center gap-1">
+              <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#E46962;"></span>not set
+            </span>
+            <span class="flex items-center gap-1">
+              <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#FA7B17;"></span>open
+            </span>
+            <span class="flex items-center gap-1">
+              <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#6AAE7B;"></span>done
+            </span>
+          </div>
+        </div>
         <div>Type</div>
         <div>Target Release</div>
         <div class="text-right">Status</div>
@@ -82,7 +95,7 @@ function renderPipelineRow(item, index, canDrag) {
         data-repo="${escapeHtml(repo)}"
         data-issue="${issue.number}"
         draggable="${canDrag}"
-        class="pipeline-row grid grid-cols-[1fr_6rem] md:grid-cols-[1fr_5rem_8rem_9rem_6rem] gap-4 items-center px-4 py-3 rounded cursor-pointer transition-all select-none ${canDrag ? 'draggable-row' : ''}"
+        class="pipeline-row grid grid-cols-[1fr_6rem] md:grid-cols-[1fr_minmax(5rem,auto)_8rem_9rem_6rem] gap-4 items-center px-4 py-3 rounded cursor-pointer transition-all select-none ${canDrag ? 'draggable-row' : ''}"
         style="background:rgba(12,43,45,0.55);border:1px solid rgba(78,99,94,0.3);border-left:3px solid ${blockedTeam ? teamColor(blockedTeam, 0.7) : 'transparent'};"
         onmouseover="this.style.background='rgba(78,99,94,0.18)'"
         onmouseout="this.style.background='rgba(12,43,45,0.55)'"
@@ -191,21 +204,24 @@ async function loadAllPendingSummaries(items) {
   }
 }
 
-// Dep dot colours: coral = not tracked, orange = open/pending, sage = closed/done
-const DEP_COLORS = { notTracked: '#E46962', pending: '#FA7B17', done: '#808C78' };
+// Dep dot colours: red = not tracked, orange = open/pending, green = closed/done
+const DEP_COLORS = { notTracked: '#E46962', pending: '#FA7B17', done: '#6AAE7B' };
 
 function renderDepDots(teamCounts) {
   if (!teamCounts.size) return '';
 
   return [...teamCounts.entries()].map(([team, { notTracked, pending, done }]) => {
-    let color, label;
-    if (pending > 0)      { color = DEP_COLORS.pending;    label = `${team}: pending`; }
-    else if (notTracked > 0) { color = DEP_COLORS.notTracked; label = `${team}: not tracked`; }
-    else                  { color = DEP_COLORS.done;       label = `${team}: done`; }
+    let color, statusText;
+    if (pending > 0)         { color = DEP_COLORS.pending;    statusText = 'pending'; }
+    else if (notTracked > 0) { color = DEP_COLORS.notTracked; statusText = 'not tracked'; }
+    else                     { color = DEP_COLORS.done;       statusText = 'done'; }
 
-    return `<span title="${escapeHtml(label)}"
-                  style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${color};flex-shrink:0;"
-                  aria-label="${escapeHtml(label)}"></span>`;
+    return `<span title="${escapeHtml(team)}: ${statusText}"
+                  class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs"
+                  style="background:rgba(14,38,24,0.5);border:1px solid rgba(78,99,94,0.3);font-family:Arial,Helvetica,sans-serif;color:#DDDED8;white-space:nowrap;">
+              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0;"></span>
+              ${escapeHtml(team)}
+            </span>`;
   }).join('');
 }
 
