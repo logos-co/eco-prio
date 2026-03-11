@@ -302,30 +302,68 @@ function renderLoadingState() {
 function renderErrorState(message) {
   const content = document.getElementById('app-content');
   if (!content) return;
+
+  const noPat = !hasPAT();
+  const looksLikeRateOrAuth = /rate.limit|unauthorized|forbidden|bad.credential|read:project|requires/i.test(message);
+  const showPatCta = noPat || looksLikeRateOrAuth;
+
   content.innerHTML = `
-    <div class="max-w-2xl mx-auto mt-16 px-4">
-      <div style="background:rgba(228,105,98,0.08);border:1px solid rgba(228,105,98,0.35);border-radius:10px;padding:1.5rem;">
-        <div class="flex items-start gap-4">
-          <div class="flex-none w-9 h-9 flex items-center justify-center rounded" style="background:rgba(228,105,98,0.15);">
-            <svg class="w-5 h-5 text-coral" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+    <div class="max-w-2xl mx-auto mt-20 px-6">
+      <div style="background:rgba(255,255,255,0.8);border:1px solid rgba(228,105,98,0.4);border-radius:14px;padding:2.5rem;box-shadow:0 4px 24px rgba(228,105,98,0.08);">
+
+        <!-- Icon + title -->
+        <div class="flex items-center gap-4 mb-5">
+          <div class="flex-none w-12 h-12 flex items-center justify-center rounded-xl" style="background:rgba(228,105,98,0.12);">
+            <svg class="w-6 h-6" style="color:#E46962;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
           </div>
-          <div class="flex-1 min-w-0">
-            <h3 class="text-base font-bold text-parchment mb-1" style="font-family:'Times New Roman',Times,serif;">Failed to load project</h3>
-            <p class="text-sm text-coral/80 break-words" style="font-family:Arial,Helvetica,sans-serif;">${escapeHtml(message)}</p>
-            <div class="mt-4 flex items-center gap-3">
-              <button onclick="window._retryLoad()"
-                      class="text-sm bg-coral hover:bg-orange text-white px-3 py-1.5 rounded transition-colors font-medium" style="font-family:Arial,Helvetica,sans-serif;">
-                Retry
-              </button>
-              <button onclick="document.getElementById('btn-settings').click()"
-                      class="text-sm text-muted hover:text-parchment px-3 py-1.5 rounded hover:bg-sage/20 transition-colors" style="font-family:Arial,Helvetica,sans-serif;">
-                Check Settings
-              </button>
-            </div>
+          <div>
+            <h2 class="text-xl font-bold" style="font-family:'Times New Roman',Times,serif;color:#0E2618;">Failed to load project</h2>
+            <p class="text-sm mt-0.5" style="color:#808C78;font-family:Arial,Helvetica,sans-serif;">${escapeHtml(message)}</p>
           </div>
         </div>
+
+        ${showPatCta ? `
+        <!-- PAT guidance -->
+        <div style="background:rgba(221,222,216,0.6);border:1px solid rgba(78,99,94,0.2);border-radius:10px;padding:1.25rem;" class="mb-5">
+          <p class="text-sm font-semibold mb-1" style="color:#0E2618;font-family:'Times New Roman',Times,serif;">
+            ${noPat ? 'A Personal Access Token is required' : 'Your token may be missing or expired'}
+          </p>
+          <p class="text-sm mb-3" style="color:#4E635E;font-family:Arial,Helvetica,sans-serif;">
+            GitHub's API requires a PAT with <code style="background:rgba(78,99,94,0.12);padding:0.1em 0.3em;border-radius:3px;font-size:0.82em;">read:project</code> and
+            <code style="background:rgba(78,99,94,0.12);padding:0.1em 0.3em;border-radius:3px;font-size:0.82em;">public_repo</code> scopes
+            to fetch project data. Without it, requests are rate-limited and may fail.
+          </p>
+          <div class="flex items-center gap-3 flex-wrap">
+            <button onclick="document.getElementById('btn-settings').click()"
+                    style="background:#E46962;color:white;font-family:Arial,Helvetica,sans-serif;border-radius:6px;padding:0.5rem 1rem;font-size:0.875rem;font-weight:600;border:none;cursor:pointer;"
+                    onmouseover="this.style.background='#FA7B17'" onmouseout="this.style.background='#E46962'">
+              Add a PAT in Settings
+            </button>
+            <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener"
+               style="font-size:0.8rem;color:#808C78;font-family:Arial,Helvetica,sans-serif;text-decoration:underline;text-underline-offset:2px;">
+              Generate token on GitHub ↗
+            </a>
+          </div>
+        </div>
+        ` : ''}
+
+        <!-- Secondary actions -->
+        <div class="flex items-center gap-3">
+          <button onclick="window._retryLoad()"
+                  style="font-size:0.875rem;color:#4E635E;font-family:Arial,Helvetica,sans-serif;background:rgba(78,99,94,0.1);border:1px solid rgba(78,99,94,0.25);border-radius:6px;padding:0.4rem 0.9rem;cursor:pointer;"
+                  onmouseover="this.style.background='rgba(78,99,94,0.18)'" onmouseout="this.style.background='rgba(78,99,94,0.1)'">
+            Retry
+          </button>
+          ${!showPatCta ? `
+          <button onclick="document.getElementById('btn-settings').click()"
+                  style="font-size:0.875rem;color:#808C78;font-family:Arial,Helvetica,sans-serif;background:none;border:none;cursor:pointer;text-decoration:underline;text-underline-offset:2px;">
+            Check Settings
+          </button>
+          ` : ''}
+        </div>
+
       </div>
     </div>
   `;
