@@ -157,8 +157,11 @@
           <p class="text-xs text-muted mt-1" style="font-family: Arial, Helvetica, sans-serif;">
             Requires <code class="bg-forest/80 px-1 py-0.5 rounded text-coral">read:project</code> +
             <code class="bg-forest/80 px-1 py-0.5 rounded text-coral">public_repo</code> scopes. Stored only in localStorage.
-            <a href="https://github.com/settings/tokens/new?scopes=read:project,public_repo&description=Priority+Pipeline" target="_blank" rel="noopener"
-               class="text-coral hover:text-orange underline underline-offset-2 transition-colors ml-1">Generate →</a>
+            <a href="https://github.com/settings/tokens/new?scopes=read:project,public_repo&description=Priority+Pipeline+(read)" target="_blank" rel="noopener"
+               class="text-coral hover:text-orange underline underline-offset-2 transition-colors ml-1">Generate (read-only) →</a>
+            <br>For drag-to-reorder, use <code class="bg-forest/80 px-1 py-0.5 rounded text-coral">project</code> scope instead.
+            <a href="https://github.com/settings/tokens/new?scopes=project,public_repo&description=Priority+Pipeline+(write)" target="_blank" rel="noopener"
+               class="text-coral hover:text-orange underline underline-offset-2 transition-colors ml-1">Generate (read+write) →</a>
           </p>
         </div>
 

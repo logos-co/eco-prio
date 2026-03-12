@@ -98,12 +98,14 @@ html, body {
   transition: opacity 0.15s, transform 0.15s;
 }
 
-.drag-over {
-  border-color: var(--color-coral) !important;
-  background-color: rgba(228, 105, 98, 0.08) !important;
-  box-shadow: 0 0 0 1px rgba(228, 105, 98, 0.3);
-  transform: scale(1.004);
-  transition: all 0.1s;
+.drop-indicator {
+  height: 3px;
+  background: var(--color-coral);
+  border-radius: 2px;
+  pointer-events: none;
+  margin: -1.5px 0;
+  position: relative;
+  z-index: 10;
 }
 
 /* ------------------------------------------------------------------ */

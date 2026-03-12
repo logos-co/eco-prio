@@ -108,9 +108,12 @@ function renderPipelineRow(item, index, canDrag) {
 
   // Override journey-type label colours so user / developer / node operator are distinct
   const JOURNEY_COLORS = { 'user': 'D94F45', 'developer': '3B7CB8', 'node operator': 'C4912C' };
+  // Override release label colours so v0.1 / v0.2 are visually distinct
+  const RELEASE_COLORS = { 'testnet v0.1': '4E635E', 'testnet v0.2': '3B7CB8' };
 
   const labelPill = (l) => {
-    const raw = JOURNEY_COLORS[l.name.trim().toLowerCase()] || l.color;
+    const key = l.name.trim().toLowerCase();
+    const raw = JOURNEY_COLORS[key] || RELEASE_COLORS[key] || l.color;
     const textColor = raw === l.color && l.color.toLowerCase() === '0e2618' ? '4E635E' : raw;
     return `<span class="inline-flex items-center px-1.5 py-px rounded text-xs font-medium"
            style="background:#${raw}18;color:#${textColor};border:1px solid #${raw}50;font-family:Arial,Helvetica,sans-serif;">
@@ -148,6 +151,7 @@ function renderPipelineRow(item, index, canDrag) {
             }
             <span class="flex-1 min-w-0 text-base font-semibold leading-snug" style="font-family:'Times New Roman',Times,serif;color:#0E2618;">
               ${escapeHtml(issue.title)}
+              <span class="text-xs font-normal" style="color:#808C78;font-family:Arial,Helvetica,sans-serif;">#${issue.number}</span>
             </span>
             ${docUrl ? `
               <a href="${escapeHtml(docUrl)}" target="_blank" rel="noopener"

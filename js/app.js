@@ -339,11 +339,20 @@ function renderErrorState(message) {
                 Needs <code style="background:rgba(78,99,94,0.1);padding:0.1em 0.3em;border-radius:3px;">read:project</code> and
                 <code style="background:rgba(78,99,94,0.1);padding:0.1em 0.3em;border-radius:3px;">public_repo</code> scopes.
               </p>
-              <a href="https://github.com/settings/tokens/new?scopes=read:project,public_repo&description=Priority+Pipeline"
+              <a href="https://github.com/settings/tokens/new?scopes=read:project,public_repo&description=Priority+Pipeline+(read)"
                  target="_blank" rel="noopener"
                  style="display:inline-flex;align-items:center;gap:0.4rem;font-size:0.8rem;font-family:Arial,Helvetica,sans-serif;color:#E46962;text-decoration:underline;text-underline-offset:2px;"
                  onmouseover="this.style.color='#FA7B17'" onmouseout="this.style.color='#E46962'">
-                Open GitHub token page ↗
+                Generate read-only token ↗
+              </a>
+              <p class="text-xs mt-1.5 mb-2" style="color:#4E635E;font-family:Arial,Helvetica,sans-serif;">
+                For drag-to-reorder, use <code style="background:rgba(78,99,94,0.1);padding:0.1em 0.3em;border-radius:3px;">project</code> scope instead.
+              </p>
+              <a href="https://github.com/settings/tokens/new?scopes=project,public_repo&description=Priority+Pipeline+(write)"
+                 target="_blank" rel="noopener"
+                 style="display:inline-flex;align-items:center;gap:0.4rem;font-size:0.8rem;font-family:Arial,Helvetica,sans-serif;color:#E46962;text-decoration:underline;text-underline-offset:2px;"
+                 onmouseover="this.style.color='#FA7B17'" onmouseout="this.style.color='#E46962'">
+                Generate read+write token ↗
               </a>
             </div>
           </div>
@@ -480,15 +489,18 @@ function renderProjectView() {
 }
 
 function setupDrag(content, config) {
+  const openItems = state.items.filter(i => i.content?.state !== 'CLOSED');
   initDrag({
     projectId: state.projectId,
-    items: state.items,
-    pat: config.patWrite,
-    onReorder: (newItems) => {
-      state.items = newItems;
-      renderPipeline(content, state.items, state.projectTitle);
-      // Re-init drag on the freshly rendered DOM, reusing same callback
-      setupDrag(content, config);
+    items: openItems,
+    pat: config.pat,
+    onReorder: (reorderedOpen, skipRender) => {
+      const closedItems = state.items.filter(i => i.content?.state === 'CLOSED');
+      state.items = [...reorderedOpen, ...closedItems];
+      if (!skipRender) {
+        renderPipeline(content, state.items, state.projectTitle);
+        setupDrag(content, config);
+      }
     },
   });
 }

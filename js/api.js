@@ -227,11 +227,9 @@ mutation UpdateProjectItemPosition($projectId: ID!, $itemId: ID!, $afterId: ID) 
   updateProjectV2ItemPosition(input: {
     projectId: $projectId
     itemId: $itemId
-    afterItemId: $afterId
+    afterId: $afterId
   }) {
-    items {
-      nodes { id }
-    }
+    clientMutationId
   }
 }
 `;
