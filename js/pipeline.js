@@ -23,7 +23,7 @@ export function renderPipeline(container, items, projectTitle) {
         </div>
       </div>
 
-      <div class="hidden md:grid md:grid-cols-[1fr_8rem_9rem_minmax(5rem,auto)_2rem] gap-4 px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color:#808C78;font-family:Arial,Helvetica,sans-serif;border-bottom:1px solid rgba(78,99,94,0.2);">
+      <div class="hidden md:grid md:grid-cols-[1fr_8rem_9rem_minmax(5rem,auto)_2rem] gap-4 px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color:#808C78;font-family:Arial,Helvetica,sans-serif;border-bottom:1px solid rgba(78,99,94,0.2);border-left:3px solid transparent;border-right:1px solid transparent;">
         <div>Journey</div>
         <div>Type</div>
         <div>Target Release</div>
