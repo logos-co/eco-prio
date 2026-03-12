@@ -15,36 +15,30 @@ export function renderPipeline(container, items, projectTitle) {
     <div class="max-w-5xl mx-auto space-y-4">
       <div class="flex items-center justify-between mb-2">
         <div>
-          <h1 class="text-2xl font-bold text-parchment" style="font-family:'Times New Roman',Times,serif;">${escapeHtml(projectTitle || 'Priority Pipeline')}</h1>
+          <h1 class="text-2xl font-bold text-forest" style="font-family:'Times New Roman',Times,serif;">${escapeHtml(projectTitle || 'Priority Pipeline')}</h1>
           <p class="text-sm text-muted mt-0.5" style="font-family:Arial,Helvetica,sans-serif;">
             ${items.length} journey${items.length !== 1 ? 's' : ''}
             ${canDrag ? '<span class="ml-2 text-xs text-coral font-medium">· Drag rows to reorder</span>' : ''}
           </p>
         </div>
-      </div>
-
-      <div class="hidden md:grid md:grid-cols-[1fr_8rem_9rem_minmax(5rem,auto)_2rem] gap-4 px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color:#808C78;font-family:Arial,Helvetica,sans-serif;border-bottom:1px solid rgba(78,99,94,0.2);border-left:3px solid transparent;border-right:1px solid transparent;">
-        <div>Journey</div>
-        <div>Type</div>
-        <div>Target Release</div>
-        <div class="flex flex-col gap-0.5">
-          <span>Deps</span>
-          <div class="flex items-center gap-2 font-normal normal-case tracking-normal">
-            <span class="flex items-center gap-1">
-              <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#E46962;"></span>not tracked
-            </span>
-            <span class="flex items-center gap-1">
-              <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#FA7B17;"></span>open
-            </span>
-            <span class="flex items-center gap-1">
-              <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#6AAE7B;"></span>done
-            </span>
-          </div>
+        <div class="hidden md:flex items-center gap-3 text-xs" style="color:#808C78;font-family:Arial,Helvetica,sans-serif;">
+          <span class="flex items-center gap-1"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#E46962;flex-shrink:0;"></span>not tracked</span>
+          <span class="flex items-center gap-1"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#FA7B17;flex-shrink:0;"></span>open</span>
+          <span class="flex items-center gap-1"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#6AAE7B;flex-shrink:0;"></span>done</span>
         </div>
-        <div></div>
       </div>
 
       <div id="pipeline-list" class="space-y-1.5">
+        <div class="hidden md:block pointer-events-none select-none">
+          <div class="grid grid-cols-[1fr_8rem_9rem_10rem_2rem] gap-4 items-end px-4 py-1.5 text-xs font-semibold uppercase tracking-wider"
+               style="color:#808C78;font-family:Arial,Helvetica,sans-serif;border:1px solid transparent;border-left:3px solid transparent;border-bottom:1px solid rgba(78,99,94,0.2);">
+            <div>Journey</div>
+            <div>Journey<br>Type</div>
+            <div>Target<br>Release</div>
+            <div>Deps</div>
+            <div></div>
+          </div>
+        </div>
         ${items.map((item, index) => renderPipelineRow(item, index, canDrag)).join('')}
       </div>
 
@@ -104,18 +98,18 @@ function renderPipelineRow(item, index, canDrag) {
         data-repo="${escapeHtml(repo)}"
         data-issue="${issue.number}"
         draggable="${canDrag}"
-        class="pipeline-row grid grid-cols-[1fr_auto] md:grid-cols-[1fr_8rem_9rem_minmax(5rem,auto)_2rem] gap-4 items-center px-4 py-3 rounded cursor-pointer transition-all select-none ${canDrag ? 'draggable-row' : ''}"
+        class="pipeline-row grid grid-cols-[1fr_auto] md:grid-cols-[1fr_8rem_9rem_10rem_2rem] gap-4 items-center px-4 py-3 rounded cursor-pointer transition-all select-none ${canDrag ? 'draggable-row' : ''}"
         style="background:rgba(255,255,255,0.75);border:1px solid rgba(78,99,94,0.2);border-left:3px solid ${blockedTeam ? teamColor(blockedTeam, 0.6) : 'transparent'};"
         onmouseover="this.style.background='rgba(78,99,94,0.1)'"
         onmouseout="this.style.background='rgba(255,255,255,0.75)'"
       >
         <div class="min-w-0">
-          <div class="flex items-baseline gap-2.5 flex-wrap">
+          <div class="flex items-baseline gap-2.5">
             ${canDrag
               ? `<span class="drag-handle flex-none" title="Drag to reorder">⠿</span>`
               : `<span class="rank-number flex-none">${rankLabel}</span>`
             }
-            <span class="text-base font-semibold leading-snug" style="font-family:'Times New Roman',Times,serif;color:#0E2618;">
+            <span class="flex-1 min-w-0 text-base font-semibold leading-snug" style="font-family:'Times New Roman',Times,serif;color:#0E2618;">
               ${escapeHtml(issue.title)}
             </span>
             ${docUrl ? `
