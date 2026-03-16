@@ -91,12 +91,22 @@ export function extractDependencyIssues(body) {
  */
 export function addDepToBody(body, team, url) {
   const line = `- ${team}: ${url || 'TODO'}`;
-  const sectionRe = /(^#{1,3}\s+Dependencies[ \t]*\r?\n)([\s\S]*?)(?=\n#{1,3}\s|$)/m;
+  const section = extractDepsSection(body);
 
-  if (sectionRe.test(body)) {
-    return body.replace(sectionRe, (_, header, content) =>
-      `${header}${content.trimEnd()}\n${line}\n`
-    );
+  if (section !== '') {
+    // Collect existing dep lines and append the new one
+    const depLines = section.split('\n').filter(l => /^-\s/.test(l));
+    depLines.push(line);
+    const newSection = depLines.join('\n') + '\n';
+
+    // Replace old section content with cleaned-up version
+    const headingMatch = body.match(/^(#{1,3}\s+Dependencies[ \t]*\r?\n)/m);
+    const startIdx = headingMatch.index + headingMatch[0].length;
+    const rest = body.slice(startIdx);
+    const nextHeading = rest.match(/^#{1,3}\s/m);
+    const endIdx = nextHeading ? startIdx + nextHeading.index : body.length;
+
+    return body.slice(0, startIdx) + newSection + body.slice(endIdx);
   }
   return `${(body || '').trimEnd()}\n\n## Dependencies\n${line}\n`;
 }
