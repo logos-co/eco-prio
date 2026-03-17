@@ -2,7 +2,7 @@
  * pipeline.js — Pipeline view rendering
  */
 
-import { extractBlockedTeam, extractDependencyIssues, extractDocUrl } from './markdown.js';
+import { extractBlockedTeam, extractDependencyIssues, extractDocUrl, targetDateColor } from './markdown.js';
 import { toggleDetail, expandAll, collapseAll, getOpenCount } from './detail.js';
 import { hasWritePAT, getReadPAT } from './config.js';
 import { teamColor, statusBadge } from './app.js';
@@ -211,15 +211,17 @@ async function loadAllPendingSummaries(items) {
     const deps = extractDependencyIssues(item.content?.body || '');
     if (!deps.length) continue;
 
-    const urlDeps  = deps.filter(d => d.url);
-    const todoDeps = deps.filter(d => !d.url);
-    const urlIndices = urlDeps.map(() => allRefs.length + urlDeps.indexOf(urlDeps[urlDeps.indexOf(urlDeps.find(x => !allRefs.includes(x)))]));
+    const ghDeps   = deps.filter(d => d.url && d.owner && !d.completed); // GitHub issues — fetchable
+    const refDeps  = deps.filter(d => d.url && !d.owner && !d.completed); // Non-GitHub URLs, not completed
+    const doneDeps = deps.filter(d => d.completed);                        // Explicitly completed
+    const dateDeps = deps.filter(d => !d.url && !d.completed && d.targetDate); // Tracked by date only
+    const todoDeps = deps.filter(d => !d.url && !d.completed && !d.targetDate); // Truly untracked
 
     // Simpler: track indices per item
     const startIdx = allRefs.length;
-    urlDeps.forEach(d => allRefs.push({ owner: d.owner, repo: d.repo, number: d.number }));
+    ghDeps.forEach(d => allRefs.push({ owner: d.owner, repo: d.repo, number: d.number }));
 
-    itemDepMap.set(item.id, { todoDeps, urlDeps, startIdx });
+    itemDepMap.set(item.id, { todoDeps, doneDeps, refDeps, dateDeps, ghDeps, startIdx });
   }
 
   const results = allRefs.length ? await fetchIssuesBatch(allRefs, pat) : [];
@@ -232,18 +234,36 @@ async function loadAllPendingSummaries(items) {
     const teamCounts = new Map();
 
     const ensure = (team) => {
-      if (!teamCounts.has(team)) teamCounts.set(team, { notTracked: 0, pending: 0, done: 0, url: null });
+      if (!teamCounts.has(team)) teamCounts.set(team, { notTracked: 0, pending: 0, done: 0, url: null, targetDate: null });
       return teamCounts.get(team);
     };
 
     for (const dep of entry.todoDeps) {
       ensure(dep.team).notTracked++;
     }
-    for (let i = 0; i < entry.urlDeps.length; i++) {
-      const dep = entry.urlDeps[i];
+    for (const dep of entry.doneDeps) {
+      const c = ensure(dep.team);
+      c.done++;
+      if (!c.url && dep.url) c.url = dep.url;
+      if (dep.targetDate && !c.targetDate) c.targetDate = dep.targetDate;
+    }
+    for (const dep of entry.dateDeps) {
+      const c = ensure(dep.team);
+      c.pending++;
+      if (dep.targetDate && !c.targetDate) c.targetDate = dep.targetDate;
+    }
+    for (const dep of entry.refDeps) {
+      const c = ensure(dep.team);
+      if (!c.url) c.url = dep.url;
+      if (dep.targetDate && !c.targetDate) c.targetDate = dep.targetDate;
+      c.pending++;  // non-GitHub refs treated as pending (no way to check state)
+    }
+    for (let i = 0; i < entry.ghDeps.length; i++) {
+      const dep = entry.ghDeps[i];
       const result = results[entry.startIdx + i];
       const counts = ensure(dep.team);
       if (!counts.url) counts.url = dep.url;
+      if (dep.targetDate && !counts.targetDate) counts.targetDate = dep.targetDate;
       if (result?.error || result?.issue?.state === 'open') {
         counts.pending++;
       } else {
@@ -258,8 +278,8 @@ async function loadAllPendingSummaries(items) {
     const docUrl = extractDocUrl(item.content?.body || '');
     if (!docUrl) {
       let docsIssueClosed = false;
-      for (let i = 0; i < entry.urlDeps.length; i++) {
-        const dep = entry.urlDeps[i];
+      for (let i = 0; i < entry.ghDeps.length; i++) {
+        const dep = entry.ghDeps[i];
         if (dep.team.toLowerCase() === 'docs') {
           const result = results[entry.startIdx + i];
           if (result?.issue?.state === 'closed') {
@@ -281,7 +301,7 @@ const DEP_COLORS = { notTracked: '#E46962', pending: '#FA7B17', done: '#6AAE7B' 
 function renderDepDots(teamCounts) {
   if (!teamCounts.size) return '';
 
-  return [...teamCounts.entries()].map(([team, { notTracked, pending, done, url }]) => {
+  return [...teamCounts.entries()].map(([team, { notTracked, pending, done, url, targetDate }]) => {
     let color, statusText;
     if (pending > 0)         { color = DEP_COLORS.pending;    statusText = 'pending'; }
     else if (notTracked > 0) { color = DEP_COLORS.notTracked; statusText = 'not tracked'; }
@@ -291,15 +311,21 @@ function renderDepDots(teamCounts) {
       ? `<span style="color:#FA7B17;font-size:11px;line-height:1;flex-shrink:0;">⚠</span>`
       : `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0;"></span>`;
 
+    const dateColor = targetDate ? targetDateColor(targetDate) : null;
+    const dateHtml = targetDate
+      ? `<span style="font-size:10px;${dateColor ? `color:${dateColor};font-weight:600;` : 'color:#808C78;'}">${escapeHtml(targetDate)}</span>`
+      : '';
+
     const tag = url ? 'a' : 'span';
     const linkAttrs = url ? `href="${escapeHtml(url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()"` : '';
 
-    return `<${tag} ${linkAttrs} title="${escapeHtml(team)}: ${statusText}"
+    return `<${tag} ${linkAttrs} title="${escapeHtml(team)}: ${statusText}${targetDate ? ' — due ' + targetDate : ''}"
                   class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs transition-colors"
                   style="background:rgba(255,255,255,0.7);border:1px solid rgba(78,99,94,0.25);font-family:Arial,Helvetica,sans-serif;color:#4E635E;white-space:nowrap;${url ? 'cursor:pointer;text-decoration:none;' : ''}"
                   ${url ? `onmouseover="this.style.background='rgba(78,99,94,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.7)'"` : ''}>
               ${indicator}
               ${escapeHtml(team)}
+              ${dateHtml}
             </${tag}>`;
   }).join('');
 }

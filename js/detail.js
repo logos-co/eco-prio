@@ -3,7 +3,7 @@
  */
 
 import { fetchIssuesBatch, addLabels, removeLabel, fetchIssue, updateIssueBody } from './api.js';
-import { renderMarkdown, extractDependencyIssues, extractAllBlockedLabels, addDepToBody, extractDocUrl } from './markdown.js';
+import { renderMarkdown, extractDependencyIssues, extractAllBlockedLabels, addDepToBody, setDepDate, extractDocUrl, targetDateColor } from './markdown.js';
 import { getConfig, getReadPAT, getWritePAT, hasPAT, hasWritePAT } from './config.js';
 import { teamColor, statusBadge, showToast } from './app.js';
 import { REPO_TEAMS } from './teams.js';
@@ -226,12 +226,20 @@ function renderAddDepForm(item) {
           </div>
           <div>
             <label class="block text-xs font-medium text-parchment mb-1" style="font-family:Arial,Helvetica,sans-serif;">
-              GitHub issue URL <span class="text-muted">(optional — leave blank to track as TODO)</span>
+              Reference <span class="text-muted">(optional — GitHub issue URL, other link, or "Completed")</span>
             </label>
-            <input id="add-dep-url-${item.id}" type="url"
-                   placeholder="https://github.com/owner/repo/issues/123"
+            <input id="add-dep-url-${item.id}" type="text"
+                   placeholder="URL, &quot;Completed&quot;, or blank for TODO"
                    class="logos-input w-full text-sm"
                    oninput="window._autoResolveDepTeam('${item.id}')" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-parchment mb-1" style="font-family:Arial,Helvetica,sans-serif;">
+              Target date <span class="text-muted">(optional — DDMMMYY, e.g. 15Mar26)</span>
+            </label>
+            <input id="add-dep-date-${item.id}" type="text"
+                   placeholder="15Mar26"
+                   class="logos-input w-32 text-sm" />
           </div>
           <div class="flex items-center gap-2">
             <button onclick="window._submitAddDep('${item.id}', '${repoWithOwner}', ${issueNumber})"
@@ -291,47 +299,94 @@ async function loadDependencies(itemId, item, bodyOverride) {
     return;
   }
 
-  // Fetch only URL-based deps
-  const urlDeps = deps.filter(d => d.url);
+  // Fetch only GitHub-issue deps (have owner/repo/number, not already completed)
+  const ghDeps = deps.filter(d => d.url && d.owner && !d.completed);
   const pat = getReadPAT();
-  const refs = urlDeps.map(d => ({ owner: d.owner, repo: d.repo, number: d.number }));
-  const results = urlDeps.length ? await fetchIssuesBatch(refs, pat) : [];
+  const refs = ghDeps.map(d => ({ owner: d.owner, repo: d.repo, number: d.number }));
+  const results = ghDeps.length ? await fetchIssuesBatch(refs, pat) : [];
 
   // Build lookup: "owner/repo#number" → fetched issue
   const fetchedMap = new Map();
-  urlDeps.forEach((d, i) => {
+  ghDeps.forEach((d, i) => {
     fetchedMap.set(`${d.owner}/${d.repo}#${d.number}`, results[i]);
   });
 
   // Build per-team status entries
   const teamRows = [];
   for (const dep of deps) {
-    const fetched = dep.url ? fetchedMap.get(`${dep.owner}/${dep.repo}#${dep.number}`) : null;
     let status, statusColor, issueRef = null;
-    if (!dep.url) {
+    if (dep.completed) {
+      status = 'completed';
+      statusColor = '#6AAE7B';
+      if (dep.url) issueRef = { url: dep.url, label: escapeHtml(dep.url.replace(/^https?:\/\//, '')) };
+    } else if (dep.url && dep.owner) {
+      // GitHub issue — fetch state
+      const fetched = fetchedMap.get(`${dep.owner}/${dep.repo}#${dep.number}`);
+      if (fetched?.error) {
+        status = 'error';
+        statusColor = '#E46962';
+        issueRef = { url: dep.url, label: `${dep.owner}/${dep.repo}#${dep.number}` };
+      } else if (fetched?.issue?.state === 'open') {
+        status = 'pending';
+        statusColor = '#E46962';
+        issueRef = { url: fetched.issue.html_url, label: escapeHtml(fetched.issue.title) };
+      } else {
+        status = 'done';
+        statusColor = '#6AAE7B';
+        issueRef = fetched?.issue ? { url: fetched.issue.html_url, label: escapeHtml(fetched.issue.title) } : null;
+      }
+    } else if (dep.url) {
+      // Non-GitHub URL reference
+      status = 'pending';
+      statusColor = '#FA7B17';
+      issueRef = { url: dep.url, label: escapeHtml(dep.url.replace(/^https?:\/\//, '')) };
+    } else if (dep.targetDate) {
+      // No URL, not completed, but has a target date — tracked by deadline
+      status = 'pending';
+      statusColor = '#FA7B17';
+    } else {
+      // No URL, no Completed, no date — truly untracked
       status = 'not tracked';
       statusColor = '#808C78';
-    } else if (fetched?.error) {
-      status = 'error';
-      statusColor = '#E46962';
-      issueRef = { url: dep.url, label: `${dep.owner}/${dep.repo}#${dep.number}` };
-    } else if (fetched?.issue?.state === 'open') {
-      status = 'pending';
-      statusColor = '#E46962';
-      issueRef = { url: fetched.issue.html_url, label: escapeHtml(fetched.issue.title) };
-    } else {
-      status = 'done';
-      statusColor = '#6AAE7B';
-      issueRef = fetched?.issue ? { url: fetched.issue.html_url, label: escapeHtml(fetched.issue.title) } : null;
     }
     teamRows.push({ dep, status, statusColor, issueRef });
   }
 
   // Sort: pending first, then not-tracked, then done
-  const statusOrder = { pending: 0, error: 0, 'not tracked': 1, done: 2 };
+  const statusOrder = { pending: 0, error: 0, 'not tracked': 1, done: 2, completed: 2 };
   teamRows.sort((a, b) => (statusOrder[a.status] ?? 1) - (statusOrder[b.status] ?? 1));
 
-  listEl.innerHTML = teamRows.map(({ dep, status, statusColor, issueRef }) => `
+  const canWrite = hasWritePAT();
+  const repoWithOwner = item.content?.repository?.nameWithOwner || '';
+  const issueNumber = item.content?.number || 0;
+
+  listEl.innerHTML = teamRows.map(({ dep, status, statusColor, issueRef }, idx) => {
+    const dateColor = dep.targetDate ? targetDateColor(dep.targetDate) : null;
+    const depId = `${itemId}-dep-${idx}`;
+    let dateHtml;
+    if (canWrite) {
+      const borderColor = dateColor || 'rgba(78,99,94,0.3)';
+      const textColor = dateColor || '#4E635E';
+      dateHtml = `<span class="flex-none inline-flex items-center gap-1">
+        <input id="dep-date-${depId}" type="text" value="${escapeHtml(dep.targetDate || '')}"
+               placeholder="DDMmmYY"
+               data-item-id="${itemId}" data-team="${escapeHtml(dep.team)}"
+               data-repo="${escapeHtml(repoWithOwner)}" data-issue="${issueNumber}"
+               data-original="${escapeHtml(dep.targetDate || '')}"
+               class="dep-date-input text-xs font-medium text-center rounded px-1.5 py-0.5"
+               style="width:5.5rem;border:1px solid ${borderColor};color:${textColor};background:rgba(255,255,255,0.5);font-family:Arial,Helvetica,sans-serif;outline:none;"
+               onfocus="this.style.borderColor='#E46962';this.style.background='rgba(255,255,255,0.9)'"
+               onblur="this.style.borderColor='${borderColor}';this.style.background='rgba(255,255,255,0.5)'" />
+        <button id="dep-date-save-${depId}" class="hidden text-xs px-1.5 py-0.5 rounded transition-colors"
+                style="background:#E46962;color:#fff;font-family:Arial,Helvetica,sans-serif;"
+                onmouseover="this.style.background='#FA7B17'" onmouseout="this.style.background='#E46962'">✓</button>
+      </span>`;
+    } else {
+      dateHtml = dep.targetDate
+        ? `<span class="text-xs font-medium flex-none" style="${dateColor ? `color:${dateColor};` : 'color:#808C78;'}font-family:Arial,Helvetica,sans-serif;">${escapeHtml(dep.targetDate)}</span>`
+        : '';
+    }
+    return `
     <div class="flex items-center gap-3 py-2 px-3 rounded"
          style="background:rgba(255,255,255,0.6);border:1px solid rgba(78,99,94,0.2);">
       <span class="text-xs font-semibold px-2 py-0.5 rounded flex-none"
@@ -343,9 +398,27 @@ async function loadDependencies(itemId, item, bodyOverride) {
           ? `<a href="${issueRef.url}" target="_blank" rel="noopener" class="hover:underline">${issueRef.label}</a>`
           : '—'}
       </span>
+      ${dateHtml}
       <span class="text-xs font-medium flex-none" style="color:${statusColor};font-family:Arial,Helvetica,sans-serif;">${status}</span>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
+
+  // Attach inline date-edit handlers
+  if (canWrite) {
+    listEl.querySelectorAll('.dep-date-input').forEach(input => {
+      const saveBtn = input.parentElement.querySelector('button');
+      const showSave = () => {
+        if (input.value.trim() !== input.dataset.original) saveBtn.classList.remove('hidden');
+        else saveBtn.classList.add('hidden');
+      };
+      input.addEventListener('input', showSave);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); saveBtn.click(); }
+        if (e.key === 'Escape') { input.value = input.dataset.original; saveBtn.classList.add('hidden'); input.blur(); }
+      });
+      saveBtn.addEventListener('click', () => window._saveDepDate(input));
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -525,8 +598,10 @@ export function registerLabelHandlers() {
     if (form) form.style.display = 'none';
     const teamInput = document.getElementById(`add-dep-team-${itemId}`);
     const urlInput  = document.getElementById(`add-dep-url-${itemId}`);
+    const dateInput = document.getElementById(`add-dep-date-${itemId}`);
     if (teamInput) teamInput.value = '';
     if (urlInput)  urlInput.value  = '';
+    if (dateInput) dateInput.value = '';
   };
 
   // -- Add dependency: auto-resolve team from URL --
@@ -545,12 +620,18 @@ export function registerLabelHandlers() {
   window._submitAddDep = async (itemId, repoWithOwner, issueNumber) => {
     const team = document.getElementById(`add-dep-team-${itemId}`)?.value.trim();
     const url  = document.getElementById(`add-dep-url-${itemId}`)?.value.trim() || '';
+    const date = document.getElementById(`add-dep-date-${itemId}`)?.value.trim() || '';
 
     if (!team) { showToast('error', 'Team name is required'); return; }
 
-    if (url) {
-      const validUrl = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+$/.test(url);
-      if (!validUrl) { showToast('error', 'Invalid GitHub issue URL'); return; }
+    if (url && url.toUpperCase() !== 'COMPLETED') {
+      const validUrl = /^https?:\/\/\S+$/.test(url);
+      if (!validUrl) { showToast('error', 'Invalid URL'); return; }
+    }
+
+    if (date && !/^\d{2}(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\d{2}$/i.test(date)) {
+      showToast('error', 'Invalid date format — use DDMMMYY (e.g. 15Mar26)');
+      return;
     }
 
     const pat = getWritePAT();
@@ -565,7 +646,8 @@ export function registerLabelHandlers() {
       // reflects the latest state even before GitHub propagates the change.
       const item = itemRegistry.get(itemId);
       const currentBody = item?.content?.body ?? (await fetchIssue(owner, repo, issueNumber, pat)).body ?? '';
-      const newBody = addDepToBody(currentBody, team, url || null);
+      const ref = url.toUpperCase() === 'COMPLETED' ? 'Completed' : (url || null);
+      const newBody = addDepToBody(currentBody, team, ref, date || null);
       await updateIssueBody(owner, repo, issueNumber, newBody, pat);
 
       // Update cached body
@@ -578,6 +660,57 @@ export function registerLabelHandlers() {
       refreshRowDepBadges(itemId, itemOrFallback);
     } catch (err) {
       showToast('error', `Failed to add dependency: ${err.message}`);
+    }
+  };
+
+  // -- Inline dep date save --
+  window._saveDepDate = async (input) => {
+    const itemId = input.dataset.itemId;
+    const team = input.dataset.team;
+    const repoWithOwner = input.dataset.repo;
+    const issueNum = parseInt(input.dataset.issue || '0', 10);
+    const newDate = input.value.trim();
+
+    if (newDate && !/^\d{2}(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\d{2}$/i.test(newDate)) {
+      showToast('error', 'Invalid date — use DDMMMYY (e.g. 15Mar26)');
+      return;
+    }
+
+    const pat = getWritePAT();
+    if (!pat) { showToast('error', 'Write token required'); return; }
+
+    const [owner, repo] = (repoWithOwner || '').split('/');
+    if (!owner || !repo || !issueNum) { showToast('error', 'Could not determine issue'); return; }
+
+    input.disabled = true;
+    const saveBtn = input.parentElement.querySelector('button');
+    if (saveBtn) saveBtn.disabled = true;
+
+    try {
+      const item = itemRegistry.get(itemId);
+      const currentBody = item?.content?.body ?? (await fetchIssue(owner, repo, issueNum, pat)).body ?? '';
+      const newBody = setDepDate(currentBody, team, newDate || null);
+      await updateIssueBody(owner, repo, issueNum, newBody, pat);
+
+      if (item?.content) item.content.body = newBody;
+      input.dataset.original = newDate;
+      if (saveBtn) saveBtn.classList.add('hidden');
+
+      // Update date color
+      const dateColor = newDate ? targetDateColor(newDate) : null;
+      input.style.color = dateColor || '#4E635E';
+      input.style.borderColor = dateColor || 'rgba(78,99,94,0.3)';
+
+      showToast('success', newDate ? `Set ${team} date to ${newDate}` : `Cleared ${team} date`);
+
+      // Refresh pipeline row badges
+      const itemOrFallback = item || { content: { body: newBody } };
+      refreshRowDepBadges(itemId, itemOrFallback);
+    } catch (err) {
+      showToast('error', `Failed to save date: ${err.message}`);
+    } finally {
+      input.disabled = false;
+      if (saveBtn) saveBtn.disabled = false;
     }
   };
 }
@@ -635,22 +768,46 @@ async function refreshRowDepBadges(itemId, item) {
   const deps = extractDependencyIssues(body);
   const pat = getReadPAT();
 
-  const urlDeps = deps.filter(d => d.url);
-  const todoDeps = deps.filter(d => !d.url);
-  const refs = urlDeps.map(d => ({ owner: d.owner, repo: d.repo, number: d.number }));
+  const ghDeps   = deps.filter(d => d.url && d.owner && !d.completed);
+  const refDeps  = deps.filter(d => d.url && !d.owner && !d.completed);
+  const doneDeps = deps.filter(d => d.completed);
+  const dateDeps = deps.filter(d => !d.url && !d.completed && d.targetDate);
+  const todoDeps = deps.filter(d => !d.url && !d.completed && !d.targetDate);
+  const refs = ghDeps.map(d => ({ owner: d.owner, repo: d.repo, number: d.number }));
   const results = refs.length ? await fetchIssuesBatch(refs, pat) : [];
 
   const teamCounts = new Map();
   const ensure = (team) => {
-    if (!teamCounts.has(team)) teamCounts.set(team, { notTracked: 0, pending: 0, done: 0, url: null });
+    if (!teamCounts.has(team)) teamCounts.set(team, { notTracked: 0, pending: 0, done: 0, url: null, targetDate: null });
     return teamCounts.get(team);
   };
-  for (const dep of todoDeps) ensure(dep.team).notTracked++;
-  for (let i = 0; i < urlDeps.length; i++) {
-    const dep = urlDeps[i];
+  for (const dep of todoDeps) {
+    const c = ensure(dep.team);
+    c.notTracked++;
+  }
+  for (const dep of doneDeps) {
+    const c = ensure(dep.team);
+    c.done++;
+    if (!c.url && dep.url) c.url = dep.url;
+    if (dep.targetDate && !c.targetDate) c.targetDate = dep.targetDate;
+  }
+  for (const dep of dateDeps) {
+    const c = ensure(dep.team);
+    c.pending++;
+    if (dep.targetDate && !c.targetDate) c.targetDate = dep.targetDate;
+  }
+  for (const dep of refDeps) {
+    const c = ensure(dep.team);
+    if (!c.url) c.url = dep.url;
+    if (dep.targetDate && !c.targetDate) c.targetDate = dep.targetDate;
+    c.pending++;
+  }
+  for (let i = 0; i < ghDeps.length; i++) {
+    const dep = ghDeps[i];
     const result = results[i];
     const counts = ensure(dep.team);
     if (!counts.url) counts.url = dep.url;
+    if (dep.targetDate && !counts.targetDate) counts.targetDate = dep.targetDate;
     if (result?.error || result?.issue?.state === 'open') counts.pending++;
     else counts.done++;
   }
@@ -658,7 +815,7 @@ async function refreshRowDepBadges(itemId, item) {
   const el = document.getElementById(`pending-${itemId}`);
   if (!el) return;
 
-  el.innerHTML = [...teamCounts.entries()].map(([team, { notTracked, pending, done, url }]) => {
+  el.innerHTML = [...teamCounts.entries()].map(([team, { notTracked, pending, done, url, targetDate }]) => {
     let statusText;
     if (pending > 0) statusText = 'pending';
     else if (notTracked > 0) statusText = 'not tracked';
@@ -668,13 +825,17 @@ async function refreshRowDepBadges(itemId, item) {
     const indicator = statusText === 'not tracked'
       ? `<span style="color:#FA7B17;font-size:11px;line-height:1;flex-shrink:0;">⚠</span>`
       : `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0;"></span>`;
+    const dateColor = targetDate ? targetDateColor(targetDate) : null;
+    const dateHtml = targetDate
+      ? `<span style="font-size:10px;${dateColor ? `color:${dateColor};font-weight:600;` : 'color:#808C78;'}">${escapeHtml(targetDate)}</span>`
+      : '';
     const tag = url ? 'a' : 'span';
     const linkAttrs = url ? `href="${escapeHtml(url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()"` : '';
-    return `<${tag} ${linkAttrs} title="${escapeHtml(team)}: ${statusText}"
+    return `<${tag} ${linkAttrs} title="${escapeHtml(team)}: ${statusText}${targetDate ? ' — due ' + targetDate : ''}"
               class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs transition-colors"
               style="background:rgba(255,255,255,0.7);border:1px solid rgba(78,99,94,0.25);font-family:Arial,Helvetica,sans-serif;color:#4E635E;white-space:nowrap;${url ? 'cursor:pointer;text-decoration:none;' : ''}"
               ${url ? `onmouseover="this.style.background='rgba(78,99,94,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.7)'"` : ''}>
-          ${indicator} ${escapeHtml(team)}
+          ${indicator} ${escapeHtml(team)} ${dateHtml}
         </${tag}>`;
   }).join('');
 }

@@ -33,7 +33,7 @@ Journeys are GitHub issues in the connected project board. Each issue has:
 - **Labels** for target release: `testnet v0.1`, `testnet v0.2`, etc. (regex: `/^testnet\b/i`)
 - **Labels** for blocked status: `blocked:teamname` (regex: `/^blocked:/i`)
 - **Issue body** with structured sections:
-  - `## Dependencies` — lines like `- team: URL` or `- team: TODO`
+  - `## Dependencies` — lines like `- team: URL [Completed] [DDMMMYY]`. URL can be a GitHub issue (auto-tracked) or any reference link. Value can also be `TODO`, `Completed`, or empty. Examples: `- team: https://github.com/o/r/issues/1`, `- team: Completed`, `- team: TODO 15Mar26`, `- team: https://example.com Completed 30Jun26`
   - `## Documentation` — bare URL to docs
 
 ## GitHub Repos
