@@ -3,7 +3,9 @@
     "allow": [
       "Bash(wc:*)",
       "Bash(gh issue:*)",
-      "Bash(gh label:*)"
+      "Bash(gh label:*)",
+      "WebFetch(domain:roadmap.logos.co)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

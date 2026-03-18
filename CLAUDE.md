@@ -53,7 +53,7 @@ gh issue create --repo logos-co/ecosystem \
   --body '## Dependencies
 - lez: TODO
 - docs: TODO
-- red-team: TODO'
+- red team: TODO'
 ```
 
 After creating, add the issue to the GitHub Project board for it to appear in the app.
