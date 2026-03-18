@@ -8,14 +8,23 @@ import { hasWritePAT, getReadPAT } from './config.js';
 import { teamColor, statusBadge } from './app.js';
 import { fetchIssuesBatch } from './api.js';
 
+// Active team filter — persists until project reload
+let activeTeamFilter = new Set();
+
 export function renderPipeline(container, items, projectTitle) {
   const canDrag = hasWritePAT();
+
+  // Reset filter on each full project render
+  activeTeamFilter.clear();
 
   // Split into open and closed; closed sorted by most recently closed first
   const openItems = items.filter(i => i.content?.state !== 'CLOSED');
   const closedItems = items
     .filter(i => i.content?.state === 'CLOSED')
     .sort((a, b) => (b.content.closedAt || '').localeCompare(a.content.closedAt || ''));
+
+  // Collect unique team names across all items (from dep lines in body)
+  const allTeams = collectAllTeams(items);
 
   const columnHeader = `
         <div class="hidden md:block pointer-events-none select-none">
@@ -57,9 +66,15 @@ export function renderPipeline(container, items, projectTitle) {
         </div>
       </div>
 
+      ${allTeams.length > 0 ? renderFilterBar(allTeams) : ''}
+
       <div id="pipeline-list" class="space-y-1.5">
         ${columnHeader}
         ${openItems.map((item, index) => renderPipelineRow(item, index, canDrag)).join('')}
+      </div>
+
+      <div id="no-filter-match" class="hidden text-center py-8 text-muted" style="font-family:Arial,Helvetica,sans-serif;">
+        <p class="text-sm">No journeys match the selected team filter</p>
       </div>
 
       ${openItems.length === 0 ? `
@@ -70,7 +85,7 @@ export function renderPipeline(container, items, projectTitle) {
       ` : ''}
 
       ${closedItems.length > 0 ? `
-        <div class="mt-8">
+        <div id="closed-section" class="mt-8">
           <h2 class="text-lg font-bold text-forest mb-1" style="font-family:'Times New Roman',Times,serif;">Completed</h2>
           <p class="text-sm text-muted mb-3" style="font-family:Arial,Helvetica,sans-serif;">${closedItems.length} closed journey${closedItems.length !== 1 ? 's' : ''}</p>
           <div id="closed-list" class="space-y-1.5" style="opacity:0.7;">
@@ -85,7 +100,87 @@ export function renderPipeline(container, items, projectTitle) {
   const allItems = [...openItems, ...closedItems];
   attachRowClickHandlers(allItems);
   attachToggleAllHandler(allItems);
+  attachFilterHandlers(allItems);
   loadAllPendingSummaries(allItems);
+}
+
+function collectAllTeams(items) {
+  const seen = new Set();
+  for (const item of items) {
+    const deps = extractDependencyIssues(item.content?.body || '');
+    for (const dep of deps) {
+      if (dep.team) seen.add(dep.team);
+    }
+  }
+  return [...seen].sort((a, b) => a.localeCompare(b));
+}
+
+function renderFilterBar(teams) {
+  const pills = teams.map(team => {
+    const color = teamColor(team, 1);
+    const bg = teamColor(team, 0.12);
+    return `<button
+      class="filter-team-pill inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all"
+      data-team="${escapeHtml(team)}"
+      style="border:1px solid rgba(78,99,94,0.3);background:transparent;color:#808C78;font-family:Arial,Helvetica,sans-serif;cursor:pointer;"
+      title="Filter by ${escapeHtml(team)}"
+    >
+      <span class="w-2 h-2 rounded-full flex-none" style="background:${color};"></span>
+      ${escapeHtml(team)}
+    </button>`;
+  }).join('');
+
+  return `
+    <div id="team-filter-bar" class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs flex-none" style="color:#808C78;font-family:Arial,Helvetica,sans-serif;">Deps:</span>
+      ${pills}
+    </div>`;
+}
+
+function applyTeamFilter(allItems) {
+  const noMatch = document.getElementById('no-filter-match');
+  if (activeTeamFilter.size === 0) {
+    // Show everything
+    for (const item of allItems) {
+      const wrapper = document.getElementById(`filter-item-${item.id}`);
+      if (wrapper) wrapper.classList.remove('hidden');
+    }
+    if (noMatch) noMatch.classList.add('hidden');
+    return;
+  }
+
+  let visibleCount = 0;
+  for (const item of allItems) {
+    const wrapper = document.getElementById(`filter-item-${item.id}`);
+    if (!wrapper) continue;
+    const itemTeams = JSON.parse(wrapper.dataset.depTeams || '[]');
+    const matches = itemTeams.some(t => activeTeamFilter.has(t));
+    wrapper.classList.toggle('hidden', !matches);
+    if (matches) visibleCount++;
+  }
+  if (noMatch) noMatch.classList.toggle('hidden', visibleCount > 0);
+}
+
+function attachFilterHandlers(allItems) {
+  document.querySelectorAll('.filter-team-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const team = btn.dataset.team;
+      if (activeTeamFilter.has(team)) {
+        activeTeamFilter.delete(team);
+        btn.style.background = 'transparent';
+        btn.style.color = '#808C78';
+        btn.style.borderColor = 'rgba(78,99,94,0.3)';
+      } else {
+        activeTeamFilter.add(team);
+        const color = teamColor(team, 1);
+        const bg = teamColor(team, 0.15);
+        btn.style.background = bg;
+        btn.style.color = color;
+        btn.style.borderColor = teamColor(team, 0.5);
+      }
+      applyTeamFilter(allItems);
+    });
+  });
 }
 
 function renderPipelineRow(item, index, canDrag) {
@@ -96,6 +191,9 @@ function renderPipelineRow(item, index, canDrag) {
   const blockedTeam = extractBlockedTeam(labels);
   const repo = issue.repository?.nameWithOwner || '';
   const rankLabel = String(index + 1).padStart(2, '0');
+
+  // Collect dep team names for this item (used by filter)
+  const depTeams = extractDependencyIssues(issue.body || '').map(d => d.team).filter(Boolean);
 
   // Journey type labels (user / developer / node operator)
   const typeLabels = labels.filter(l =>
@@ -129,7 +227,7 @@ function renderPipelineRow(item, index, canDrag) {
   const docUrl = extractDocUrl(issue.body || '');
 
   return `
-    <div>
+    <div id="filter-item-${item.id}" data-dep-teams="${escapeHtml(JSON.stringify([...new Set(depTeams)]))}">
       <div
         id="row-${item.id}"
         data-item-id="${item.id}"
