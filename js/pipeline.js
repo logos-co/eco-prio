@@ -195,17 +195,17 @@ function renderPipelineRow(item, index, canDrag) {
   // Collect dep team names for this item (used by filter)
   const depTeams = extractDependencyIssues(issue.body || '').map(d => d.team).filter(Boolean);
 
-  // Journey type labels (user / developer / node operator)
+  // Journey type labels (gui user / developer / node operator)
   const typeLabels = labels.filter(l =>
-    /^(user|developer|node operator)$/i.test(l.name.trim())
+    /^(gui user|developer|node operator)$/i.test(l.name.trim())
   );
   // Release labels (e.g. testnet v0.1)
   const releaseLabels = labels.filter(l =>
     /^testnet\b/i.test(l.name.trim())
   );
 
-  // Override journey-type label colours so user / developer / node operator are distinct
-  const JOURNEY_COLORS = { 'user': 'D94F45', 'developer': '3B7CB8', 'node operator': 'C4912C' };
+  // Override journey-type label colours so gui user / developer / node operator are distinct
+  const JOURNEY_COLORS = { 'gui user': 'D94F45', 'developer': '3B7CB8', 'node operator': 'C4912C' };
   // Override release label colours so v0.1 / v0.2 are visually distinct
   const RELEASE_COLORS = { 'testnet v0.1': '4E635E', 'testnet v0.2': '3B7CB8', 'testnet unscheduled': '808C78' };
 

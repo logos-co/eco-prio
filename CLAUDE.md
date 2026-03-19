@@ -29,7 +29,7 @@ css/                — Stylesheets
 
 Journeys are GitHub issues in the connected project board. Each issue has:
 
-- **Labels** for journey type: `user`, `developer`, `node operator`
+- **Labels** for journey type: `gui user`, `developer`, `node operator`
 - **Labels** for target release: `testnet v0.1`, `testnet v0.2`, etc. (regex: `/^testnet\b/i`)
 - **Labels** for blocked status: `blocked:teamname` (regex: `/^blocked:/i`)
 - **Issue body** with structured sections:
@@ -58,7 +58,7 @@ gh issue create --repo logos-co/ecosystem \
 
 After creating, add the issue to the GitHub Project board for it to appear in the app.
 
-Journey type label colors: user=`D94F45`, developer=`3B7CB8`, node operator=`C4912C`.
+Journey type label colors: gui user=`D94F45`, developer=`3B7CB8`, node operator=`C4912C`.
 
 ## Branding
 
