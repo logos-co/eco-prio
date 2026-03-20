@@ -309,17 +309,18 @@ async function loadAllPendingSummaries(items) {
     const deps = extractDependencyIssues(item.content?.body || '');
     if (!deps.length) continue;
 
-    const ghDeps   = deps.filter(d => d.url && d.owner && !d.completed); // GitHub issues — fetchable
-    const refDeps  = deps.filter(d => d.url && !d.owner && !d.completed); // Non-GitHub URLs, not completed
-    const doneDeps = deps.filter(d => d.completed);                        // Explicitly completed
-    const dateDeps = deps.filter(d => !d.url && !d.completed && d.targetDate); // Tracked by date only
-    const todoDeps = deps.filter(d => !d.url && !d.completed && !d.targetDate); // Truly untracked
+    const ghDeps      = deps.filter(d => d.url && d.owner && !d.completed && !d.pending); // GitHub issues — fetchable
+    const refDeps     = deps.filter(d => d.url && !d.owner && !d.completed && !d.pending); // Non-GitHub URLs, not completed
+    const doneDeps    = deps.filter(d => d.completed);                                      // Explicitly completed
+    const dateDeps    = deps.filter(d => !d.url && !d.completed && !d.pending && d.targetDate); // Tracked by date only
+    const todoDeps    = deps.filter(d => !d.url && !d.completed && !d.pending && !d.targetDate); // Truly untracked
+    const pendingKwDeps = deps.filter(d => d.pending && !d.completed);                      // Explicit Pending keyword — red
 
     // Simpler: track indices per item
     const startIdx = allRefs.length;
     ghDeps.forEach(d => allRefs.push({ owner: d.owner, repo: d.repo, number: d.number }));
 
-    itemDepMap.set(item.id, { todoDeps, doneDeps, refDeps, dateDeps, ghDeps, startIdx });
+    itemDepMap.set(item.id, { todoDeps, doneDeps, refDeps, dateDeps, ghDeps, pendingKwDeps, startIdx });
   }
 
   const results = allRefs.length ? await fetchIssuesBatch(allRefs, pat) : [];
@@ -328,11 +329,11 @@ async function loadAllPendingSummaries(items) {
     const entry = itemDepMap.get(item.id);
     if (!entry) continue;
 
-    // team → {notTracked, pending, done}
+    // team → {notTracked, pending, pendingKw, done}
     const teamCounts = new Map();
 
     const ensure = (team) => {
-      if (!teamCounts.has(team)) teamCounts.set(team, { notTracked: 0, pending: 0, done: 0, url: null, targetDate: null });
+      if (!teamCounts.has(team)) teamCounts.set(team, { notTracked: 0, pending: 0, pendingKw: 0, done: 0, url: null, targetDate: null });
       return teamCounts.get(team);
     };
 
@@ -355,6 +356,13 @@ async function loadAllPendingSummaries(items) {
       if (!c.url) c.url = dep.url;
       if (dep.targetDate && !c.targetDate) c.targetDate = dep.targetDate;
       c.pending++;  // non-GitHub refs treated as pending (no way to check state)
+    }
+    for (const dep of entry.pendingKwDeps) {
+      const c = ensure(dep.team);
+      if (dep.url && !c.url) c.url = dep.url;
+      if (dep.targetDate && !c.targetDate) c.targetDate = dep.targetDate;
+      c.pending++;
+      c.pendingKw++;
     }
     for (let i = 0; i < entry.ghDeps.length; i++) {
       const dep = entry.ghDeps[i];
@@ -399,9 +407,10 @@ const DEP_COLORS = { notTracked: '#E46962', pending: '#FA7B17', done: '#6AAE7B' 
 function renderDepDots(teamCounts) {
   if (!teamCounts.size) return '';
 
-  return [...teamCounts.entries()].map(([team, { notTracked, pending, done, url, targetDate }]) => {
+  return [...teamCounts.entries()].map(([team, { notTracked, pending, pendingKw, done, url, targetDate }]) => {
     let color, statusText;
-    if (pending > 0)         { color = DEP_COLORS.pending;    statusText = 'pending'; }
+    if (pendingKw > 0)       { color = DEP_COLORS.notTracked; statusText = 'pending'; }
+    else if (pending > 0)    { color = DEP_COLORS.pending;    statusText = 'pending'; }
     else if (notTracked > 0) { color = DEP_COLORS.notTracked; statusText = 'not tracked'; }
     else                     { color = DEP_COLORS.done;       statusText = 'done'; }
 

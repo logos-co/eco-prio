@@ -53,6 +53,7 @@ function extractDepsSection(body) {
  *   repo: string|null,      — GitHub issue repo (null for non-GitHub URLs)
  *   number: number|null,    — GitHub issue number (null for non-GitHub URLs)
  *   completed: boolean,     — true if "Completed" flag is set
+ *   pending: boolean,       — true if "Pending" flag is set (shows red)
  *   targetDate: string|null, — DDMMMYY date string, or null
  * }>
  */
@@ -67,6 +68,8 @@ export function extractDependencyIssues(body) {
   const dateRe = /\b(\d{2}(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\d{2})\s*$/i;
   // Completed flag at end of value (after URL or standalone)
   const completedRe = /\bCompleted\s*$/i;
+  // Pending flag at end of value (after URL or standalone); overrides GitHub issue state
+  const pendingRe = /\bPending\s*$/i;
   let m;
   while ((m = lineRe.exec(section)) !== null) {
     const team = m[1].trim();
@@ -83,15 +86,19 @@ export function extractDependencyIssues(body) {
     const completed = completedRe.test(value);
     if (completed) value = value.replace(completedRe, '').trim();
 
-    // 3. Remaining value is URL or "TODO" or empty
+    // 3. Extract optional trailing "Pending" flag (only if not Completed)
+    const pending = !completed && pendingRe.test(value);
+    if (pending) value = value.replace(pendingRe, '').trim();
+
+    // 4. Remaining value is URL or "TODO" or empty
     if (value.toUpperCase() === 'TODO' || value === '') {
-      deps.push({ team, url: null, owner: null, repo: null, number: null, completed, targetDate });
+      deps.push({ team, url: null, owner: null, repo: null, number: null, completed, pending, targetDate });
     } else {
       const ghM = value.match(/https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/issues\/(\d+)/);
       if (ghM) {
-        deps.push({ team, url: value, owner: ghM[1], repo: ghM[2], number: parseInt(ghM[3], 10), completed, targetDate });
+        deps.push({ team, url: value, owner: ghM[1], repo: ghM[2], number: parseInt(ghM[3], 10), completed, pending, targetDate });
       } else if (/^https?:\/\/\S+$/.test(value)) {
-        deps.push({ team, url: value, owner: null, repo: null, number: null, completed, targetDate });
+        deps.push({ team, url: value, owner: null, repo: null, number: null, completed, pending, targetDate });
       }
       // Lines with unrecognised values are silently skipped
     }

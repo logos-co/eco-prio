@@ -299,8 +299,8 @@ async function loadDependencies(itemId, item, bodyOverride) {
     return;
   }
 
-  // Fetch only GitHub-issue deps (have owner/repo/number, not already completed)
-  const ghDeps = deps.filter(d => d.url && d.owner && !d.completed);
+  // Fetch only GitHub-issue deps (have owner/repo/number, not already completed/pending)
+  const ghDeps = deps.filter(d => d.url && d.owner && !d.completed && !d.pending);
   const pat = getReadPAT();
   const refs = ghDeps.map(d => ({ owner: d.owner, repo: d.repo, number: d.number }));
   const results = ghDeps.length ? await fetchIssuesBatch(refs, pat) : [];
@@ -318,6 +318,10 @@ async function loadDependencies(itemId, item, bodyOverride) {
     if (dep.completed) {
       status = 'completed';
       statusColor = '#6AAE7B';
+      if (dep.url) issueRef = { url: dep.url, label: escapeHtml(dep.url.replace(/^https?:\/\//, '')) };
+    } else if (dep.pending) {
+      status = 'pending';
+      statusColor = '#E46962';
       if (dep.url) issueRef = { url: dep.url, label: escapeHtml(dep.url.replace(/^https?:\/\//, '')) };
     } else if (dep.url && dep.owner) {
       // GitHub issue — fetch state
@@ -768,17 +772,18 @@ async function refreshRowDepBadges(itemId, item) {
   const deps = extractDependencyIssues(body);
   const pat = getReadPAT();
 
-  const ghDeps   = deps.filter(d => d.url && d.owner && !d.completed);
-  const refDeps  = deps.filter(d => d.url && !d.owner && !d.completed);
-  const doneDeps = deps.filter(d => d.completed);
-  const dateDeps = deps.filter(d => !d.url && !d.completed && d.targetDate);
-  const todoDeps = deps.filter(d => !d.url && !d.completed && !d.targetDate);
+  const ghDeps        = deps.filter(d => d.url && d.owner && !d.completed && !d.pending);
+  const refDeps       = deps.filter(d => d.url && !d.owner && !d.completed && !d.pending);
+  const doneDeps      = deps.filter(d => d.completed);
+  const dateDeps      = deps.filter(d => !d.url && !d.completed && !d.pending && d.targetDate);
+  const pendingKwDeps = deps.filter(d => d.pending && !d.completed);
+  const todoDeps      = deps.filter(d => !d.url && !d.completed && !d.pending && !d.targetDate);
   const refs = ghDeps.map(d => ({ owner: d.owner, repo: d.repo, number: d.number }));
   const results = refs.length ? await fetchIssuesBatch(refs, pat) : [];
 
   const teamCounts = new Map();
   const ensure = (team) => {
-    if (!teamCounts.has(team)) teamCounts.set(team, { notTracked: 0, pending: 0, done: 0, url: null, targetDate: null });
+    if (!teamCounts.has(team)) teamCounts.set(team, { notTracked: 0, pending: 0, pendingKw: 0, done: 0, url: null, targetDate: null });
     return teamCounts.get(team);
   };
   for (const dep of todoDeps) {
@@ -802,6 +807,13 @@ async function refreshRowDepBadges(itemId, item) {
     if (dep.targetDate && !c.targetDate) c.targetDate = dep.targetDate;
     c.pending++;
   }
+  for (const dep of pendingKwDeps) {
+    const c = ensure(dep.team);
+    if (dep.url && !c.url) c.url = dep.url;
+    if (dep.targetDate && !c.targetDate) c.targetDate = dep.targetDate;
+    c.pending++;
+    c.pendingKw++;
+  }
   for (let i = 0; i < ghDeps.length; i++) {
     const dep = ghDeps[i];
     const result = results[i];
@@ -815,13 +827,13 @@ async function refreshRowDepBadges(itemId, item) {
   const el = document.getElementById(`pending-${itemId}`);
   if (!el) return;
 
-  el.innerHTML = [...teamCounts.entries()].map(([team, { notTracked, pending, done, url, targetDate }]) => {
+  el.innerHTML = [...teamCounts.entries()].map(([team, { notTracked, pending, pendingKw, done, url, targetDate }]) => {
     let statusText;
     if (pending > 0) statusText = 'pending';
     else if (notTracked > 0) statusText = 'not tracked';
     else statusText = 'done';
 
-    const color = statusText === 'pending' ? '#FA7B17' : statusText === 'not tracked' ? '#E46962' : '#6AAE7B';
+    const color = statusText === 'pending' ? (pendingKw > 0 ? '#E46962' : '#FA7B17') : statusText === 'not tracked' ? '#E46962' : '#6AAE7B';
     const indicator = statusText === 'not tracked'
       ? `<span style="color:#FA7B17;font-size:11px;line-height:1;flex-shrink:0;">⚠</span>`
       : `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0;"></span>`;
