@@ -152,7 +152,7 @@ function renderDetailShell(item) {
 
 const RND_COLORS = {
   'to-be-confirmed':      '#E46962',
-  'confirmed':            '#FA7B17',
+  'confirmed':            '#6AAE7B',
   'in-progress':          '#FA7B17',
   'doc-packet-delivered': '#6AAE7B',
 };
@@ -326,7 +326,7 @@ function renderWorkflowSections(
   sections.push(renderRnDSection(itemId, rnd, rndState, repoWithOwner, issueNumber, canWrite));
 
   // ── Doc Packet Section (always shown) ──
-  sections.push(renderDocPacketSection(itemId, docPacketContent, rndState));
+  sections.push(renderDocPacketSection(itemId, docPacketContent, rndState, canWrite));
 
   // ── Documentation Section (shown when rndState = doc-packet-delivered OR link exists) ──
   if (rndState === 'doc-packet-delivered' || docsLink) {

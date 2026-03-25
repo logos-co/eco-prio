@@ -150,8 +150,12 @@ function upsertSectionField(body, heading, field, value) {
   const headingRe = new RegExp(`^(#{1,3}\\s+${escapedH}[ \\t]*\\r?\\n)`, 'm');
   const headingMatch = body.match(headingRe);
 
+  const isEmpty = value == null || value === '';
+  const writtenValue = isEmpty ? '' : ` ${value}`;
+
   if (!headingMatch) {
-    return `${(body || '').trimEnd()}\n\n## ${heading}\n- ${field}: ${value}\n`;
+    if (isEmpty) return body;
+    return `${(body || '').trimEnd()}\n\n## ${heading}\n- ${field}:${writtenValue}\n`;
   }
   const startIdx = headingMatch.index + headingMatch[0].length;
   const rest = body.slice(startIdx);
@@ -160,10 +164,12 @@ function upsertSectionField(body, heading, field, value) {
   const section = rest.slice(0, sectionEnd);
 
   const escapedF = field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const fieldRe = new RegExp(`^(-[ \\t]+${escapedF}:)[ \\t].*$`, 'mi');
+  // [ \t]* — match zero or more spaces so we can re-match previously-cleared fields
+  const fieldRe = new RegExp(`^(-[ \\t]+${escapedF}:)[ \\t]*.*$`, 'mi');
   const updated = fieldRe.test(section)
-    ? section.replace(fieldRe, `$1 ${value}`)
-    : section.trimEnd() + `\n- ${field}: ${value}\n`;
+    ? section.replace(fieldRe, `$1${writtenValue}`)
+    : isEmpty ? section
+    : section.trimEnd() + `\n- ${field}:${writtenValue}\n`;
 
   return body.slice(0, startIdx) + updated + body.slice(startIdx + sectionEnd);
 }

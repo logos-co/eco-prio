@@ -4,6 +4,16 @@ Website to track priorities of journeys for Logos Eco Dev, on Logos R&D.
 
 Pre-configured for [logos-co / project 12](https://github.com/orgs/logos-co/projects/12/views/1?layout_template=board).
 
+## Usage
+
+1. **Filter by action needed** — use the filter bar at the top to show only journeys where your team has an open action (`action:rnd`, `action:docs`, or `action:red-team`).
+2. **Expand a journey** — click any row to open the detail panel. It shows the full workflow state for R&D, Doc Packet, Documentation, and Red Team.
+3. **Enable editing** — click the **Edit** button in the header (requires a token with `project` + `public_repo` scopes — [generate one here](https://github.com/settings/tokens/new?scopes=project,public_repo&description=Priority+Pipeline)). Once active, the button shows **Editing** in coral.
+4. **Fill in missing information** — with editing enabled, each workflow section shows an input field. Paste the relevant URL or value and press Enter (or click ✓) to save directly to the GitHub issue.
+5. **Reorder journeys** — drag rows up or down to reprioritise. The new order is written back to the GitHub project board.
+
+> **Settings** (gear icon): change the owner, project number, or token at any time.
+
 ## How a journey progresses
 
 Each journey moves through three stakeholder stages. R&D and Docs run sequentially; Docs and Red Team overlap during the review phase:
@@ -51,7 +61,7 @@ flowchart TD
    When the PR is approved, Docs merges it, which automatically closes the linked issue.
 3. **Red Team** gets the `action:red-team` label as soon as the doc PR is ready for review. They dogfood the journey and review the docs PR at the same time; once dogfooding is done, so is the PR review. They close their tracking issue when done.
 
-The app tracks these states automatically by reading the issue body and checking GitHub issue/PR states. The `action:rnd`, `action:docs`, and `action:red-team` labels are kept in sync automatically; they tell each team at a glance when it's their turn. A ⚠ badge on a row means the labels are stale and will be corrected the next time the issue is opened in write mode.
+The app tracks these states automatically by reading the issue body and checking GitHub issue/PR states. The `action:rnd`, `action:docs`, and `action:red-team` labels are kept in sync automatically; they tell each team at a glance when it's their turn. A ⚠ badge on a row means the labels are stale and will be corrected the next time the issue is opened in edit mode.
 
 ## Run locally
 
@@ -62,13 +72,6 @@ npx serve .
 Then open http://localhost:3000.
 
 > The app uses ES modules and must be served over HTTP; opening `index.html` directly as a `file://` URL will not work.
-
-## Usage
-
-- **View**: opens read-only against the default project (`logos-co` / `#12`), no auth needed.
-- **Settings** (gear icon): change owner, project number, or add tokens.
-- **Read-only token**: `read:project` scope. Authenticated reads, higher rate limit.
-- **Read+write token**: `public_repo` + `read:project` scopes. Enables drag-to-reorder, inline editing, and label auto-sync.
 
 ## Licence
 
