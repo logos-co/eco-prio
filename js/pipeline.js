@@ -23,7 +23,6 @@ let _projectOwner = null;
 let _projectRepo = null;
 
 export function renderPipeline(container, items, projectTitle, projectId) {
-  const canDrag  = hasWritePAT();
   const canWrite = hasWritePAT();
   _projectId = projectId || null;
 
@@ -37,6 +36,8 @@ export function renderPipeline(container, items, projectTitle, projectId) {
   const _urlParams  = new URLSearchParams(window.location.search);
   activeTeamFilter  = _urlParams.get('team')   || null;
   activeStateFilter = _urlParams.get('action') || null;
+
+  const canDrag  = hasWritePAT() && !activeTeamFilter && !activeStateFilter;
 
   const openItems   = items.filter(i => i.content?.state !== 'CLOSED');
   const closedItems = items
@@ -80,7 +81,7 @@ export function renderPipeline(container, items, projectTitle, projectId) {
           <h1 class="text-2xl font-bold text-forest" style="font-family:'Times New Roman',Times,serif;">${escapeHtml(projectTitle || 'Priority Pipeline')}</h1>
           <p class="text-sm text-muted mt-0.5" style="font-family:Arial,Helvetica,sans-serif;">
             ${openItems.length} open journey${openItems.length !== 1 ? 's' : ''}
-            ${canDrag ? '<span class="ml-2 text-xs text-coral font-medium">· Drag rows to reorder</span>' : ''}
+            ${canWrite ? `<span id="drag-hint" class="ml-2 text-xs text-coral font-medium${canDrag ? '' : ' hidden'}">· Drag rows to reorder</span>` : ''}
           </p>
         </div>
         <div class="flex items-center gap-3">
@@ -112,7 +113,7 @@ export function renderPipeline(container, items, projectTitle, projectId) {
 
       <div id="pipeline-list" class="space-y-1.5">
         ${columnHeader}
-        ${openItems.map((item, index) => renderPipelineRow(item, index, canDrag)).join('')}
+        ${openItems.map((item, index) => renderPipelineRow(item, index, canDrag, canWrite)).join('')}
       </div>
 
       <div id="no-filter-match" class="hidden text-center py-8 text-muted" style="font-family:Arial,Helvetica,sans-serif;">
@@ -250,18 +251,28 @@ function applyFilter(allItems) {
   const noMatch   = document.getElementById('no-filter-match');
   const anyFilter = activeTeamFilter || activeStateFilter;
 
+  // Toggle drag hint
+  const dragHint = document.getElementById('drag-hint');
+  if (dragHint) dragHint.classList.toggle('hidden', !!anyFilter);
+
   // Toggle drag: disable when any filter active
   document.querySelectorAll('#pipeline-list .pipeline-row').forEach(el => {
+    const handle = el.querySelector('.drag-handle');
+    const rank   = el.querySelector('.rank-number');
     if (anyFilter) {
       if (el.getAttribute('draggable') === 'true') {
         el.setAttribute('draggable', 'false');
         el.dataset.dragDisabled = 'true';
         el.classList.remove('draggable-row');
       }
+      if (handle) handle.classList.add('hidden');
+      if (rank)   rank.classList.remove('hidden');
     } else if (el.dataset.dragDisabled) {
       el.setAttribute('draggable', 'true');
       el.classList.add('draggable-row');
       delete el.dataset.dragDisabled;
+      if (handle) handle.classList.remove('hidden');
+      if (rank)   rank.classList.add('hidden');
     }
   });
 
@@ -365,7 +376,7 @@ function attachFilterHandlers(allItems) {
 // Pipeline row
 // ---------------------------------------------------------------------------
 
-function renderPipelineRow(item, index, canDrag) {
+function renderPipelineRow(item, index, canDrag, canWrite = false) {
   const issue = item.content;
   if (!issue) return '';
 
@@ -419,8 +430,9 @@ function renderPipelineRow(item, index, canDrag) {
       >
         <div class="min-w-0">
           <div class="flex items-baseline gap-2.5">
-            ${canDrag
-              ? `<span class="drag-handle flex-none" title="Drag to reorder">⠿</span>`
+            ${canWrite
+              ? `<span class="drag-handle flex-none${canDrag ? '' : ' hidden'}" title="Drag to reorder">⠿</span>
+                 <span class="rank-number flex-none${canDrag ? ' hidden' : ''}">${rankLabel}</span>`
               : `<span class="rank-number flex-none">${rankLabel}</span>`
             }
             <span class="flex-1 min-w-0 text-base font-semibold leading-snug" style="font-family:'Times New Roman',Times,serif;color:#0E2618;">
