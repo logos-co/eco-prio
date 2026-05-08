@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 
 import {
   extractRnD, extractDocPacket, extractDocumentation, extractRedTeam,
-  computeStatus, computeDesiredLabels,
+  computeStatus, computeDesiredLabels, computeLifecycleMismatch,
 } from '../js/markdown.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -255,6 +255,32 @@ test('closed issue with open doc PR (would otherwise be doc-ready-for-review) �
     issueClosed: true,
   });
   assert.equal(status, 'completed');
+});
+
+// ─── computeLifecycleMismatch ─────────────────────────────────────────────────
+
+test('mismatch: closed issue already has status:completed and only testnet/type labels → no mismatch', () => {
+  const labels = ['testnet v0.1', 'gui user', 'status:completed'];
+  const desired = { status: 'status:completed', blockedBy: [] };
+  assert.equal(computeLifecycleMismatch(labels, desired), false);
+});
+
+test('mismatch: completed but a non-lifecycle blocked-by:* lingers → mismatch', () => {
+  const labels = ['testnet v0.1', 'gui user', 'status:completed', 'blocked-by:legal'];
+  const desired = { status: 'status:completed', blockedBy: [] };
+  assert.equal(computeLifecycleMismatch(labels, desired), true);
+});
+
+test('mismatch: rnd-in-progress with external blocker preserved → no mismatch', () => {
+  const labels = ['status:rnd-in-progress', 'blocked-by:rnd-core', 'blocked-by:legal'];
+  const desired = { status: 'status:rnd-in-progress', blockedBy: ['blocked-by:rnd-core'] };
+  assert.equal(computeLifecycleMismatch(labels, desired), false);
+});
+
+test('mismatch: legacy action:* still present → mismatch', () => {
+  const labels = ['status:completed', 'action:rnd'];
+  const desired = { status: 'status:completed', blockedBy: [] };
+  assert.equal(computeLifecycleMismatch(labels, desired), true);
 });
 
 test('open issue (issueClosed: false) behaves identically to omitted flag', () => {

@@ -9,7 +9,7 @@ import {
 import {
   renderMarkdown, extractExternalBlockedLabels, extractDescription,
   extractRnD, extractDocPacket, extractDocumentation, extractRedTeam,
-  computeStatus, computeDesiredLabels, RND_TEAMS as MARKDOWN_RND_TEAMS,
+  computeStatus, computeDesiredLabels, computeLifecycleMismatch, RND_TEAMS as MARKDOWN_RND_TEAMS,
   setRnDField, setRnDMilestones, setDocPacketLink, setDocTracking, setDocPr, setRedTeamTracking,
 } from './markdown.js';
 import { getReadPAT, getWritePAT, hasWritePAT } from './config.js';
@@ -248,16 +248,17 @@ async function loadWorkflowSections(itemId, item, bodyOverride, preloadedRefs = 
 
   // Provisional banner from body-only state (no ref-dependent phases yet).
   const actualLabels = (issue.labels?.nodes || []).map(l => l.name);
+  const issueClosed = String(issue.state || '').toUpperCase() === 'CLOSED';
   const provisionalStatus = computeStatus({
     rnd, docPacketLink, docsPr, docsPrRef: null, redTeamLink, redTeamRef: null,
-    allMilestonesDone: false,
+    allMilestonesDone: false, issueClosed,
   });
   const provisionalDesired = computeDesiredLabels(provisionalStatus, rnd.team);
   const bannerEl = document.getElementById(`action-banner-${itemId}`);
   if (bannerEl) {
     bannerEl.innerHTML = renderBlockedByBanner(
       provisionalStatus, provisionalDesired.blockedBy,
-      detailMismatch(actualLabels, provisionalDesired),
+      computeLifecycleMismatch(actualLabels, provisionalDesired),
     );
   }
 
@@ -273,10 +274,10 @@ async function loadWorkflowSections(itemId, item, bodyOverride, preloadedRefs = 
     upgradeWorkflowWithRefs(itemId, {
       rnd, docPacketLink, docsTracking, docsTrackingRef,
       docsPr, docsPrRef, redTeamLink, rtRef,
-      actualLabels, repoWithOwner, issueNumber, canWrite,
+      actualLabels, repoWithOwner, issueNumber, canWrite, issueClosed,
     });
     // Chain milestone-progress + all-done status upgrade onto the ref load.
-    loadMilestoneProgress(itemId, item, rnd, docPacketLink, docsPr, docsPrRef, redTeamLink, rtRef, pat);
+    loadMilestoneProgress(itemId, item, rnd, docPacketLink, docsPr, docsPrRef, redTeamLink, rtRef, pat, issueClosed);
   });
 }
 
@@ -284,15 +285,15 @@ function upgradeWorkflowWithRefs(itemId, ctx) {
   const {
     rnd, docPacketLink, docsTracking, docsTrackingRef,
     docsPr, docsPrRef, redTeamLink, rtRef,
-    actualLabels, repoWithOwner, issueNumber, canWrite,
+    actualLabels, repoWithOwner, issueNumber, canWrite, issueClosed,
   } = ctx;
 
   const status  = computeStatus({
     rnd, docPacketLink, docsPr, docsPrRef, redTeamLink, redTeamRef: rtRef,
-    allMilestonesDone: false,
+    allMilestonesDone: false, issueClosed,
   });
   const desired = computeDesiredLabels(status, rnd.team);
-  const mismatch = detailMismatch(actualLabels, desired);
+  const mismatch = computeLifecycleMismatch(actualLabels, desired);
 
   const bannerEl = document.getElementById(`action-banner-${itemId}`);
   if (bannerEl) bannerEl.innerHTML = renderBlockedByBanner(status, desired.blockedBy, mismatch);
@@ -311,24 +312,7 @@ function upgradeWorkflowWithRefs(itemId, ctx) {
   }
 }
 
-function detailMismatch(actualLabels, desired) {
-  const statusLabels = actualLabels.filter(l => l.startsWith('status:'));
-  if (statusLabels.length !== 1 || statusLabels[0] !== desired.status) return true;
-  const actualBlocked = actualLabels.filter(l =>
-    l === 'blocked-by:rnd' || l.startsWith('blocked-by:rnd-') ||
-    l === 'blocked-by:docs' || l === 'blocked-by:red-team'
-  ).sort();
-  const wantBlocked = [...desired.blockedBy].sort();
-  if (actualBlocked.length !== wantBlocked.length) return true;
-  for (let i = 0; i < actualBlocked.length; i++) {
-    if (actualBlocked[i] !== wantBlocked[i]) return true;
-  }
-  if (actualLabels.some(l => l.startsWith('action:'))) return true;
-  if (actualLabels.some(l => /^blocked:/i.test(l) && !/^blocked-by:/i.test(l))) return true;
-  return false;
-}
-
-async function loadMilestoneProgress(itemId, item, rnd, docPacketLink, docsPr, docsPrRef, redTeamLink, rtRef, pat) {
+async function loadMilestoneProgress(itemId, item, rnd, docPacketLink, docsPr, docsPrRef, redTeamLink, rtRef, pat, issueClosed = false) {
   // Fetch all milestones in parallel instead of sequentially
   const results = await Promise.all(
     rnd.milestones.map(url =>
@@ -360,7 +344,7 @@ async function loadMilestoneProgress(itemId, item, rnd, docPacketLink, docsPr, d
   if (roadmapResults.length > 0 && roadmapResults.every(r => r.done)) {
     const newStatus = computeStatus({
       rnd, docPacketLink, docsPr, docsPrRef, redTeamLink, redTeamRef: rtRef,
-      allMilestonesDone: true,
+      allMilestonesDone: true, issueClosed,
     });
     // Re-render the whole banner so the status label, blocked-by pills,
     // and mismatch warning all reflect the new phase.
@@ -368,7 +352,7 @@ async function loadMilestoneProgress(itemId, item, rnd, docPacketLink, docsPr, d
     if (bannerEl) {
       const desired = computeDesiredLabels(newStatus, rnd.team);
       const actualLabels = (item?.content?.labels?.nodes || []).map(l => l.name);
-      const mismatch = detailMismatch(actualLabels, desired);
+      const mismatch = computeLifecycleMismatch(actualLabels, desired);
       bannerEl.innerHTML = renderBlockedByBanner(newStatus, desired.blockedBy, mismatch);
     }
   }

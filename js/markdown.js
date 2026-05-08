@@ -229,6 +229,41 @@ export function computeDesiredLabels(status, rndTeam) {
   return { status: labelStatus, blockedBy };
 }
 
+/**
+ * Pure check: do an issue's current labels match the desired lifecycle state?
+ * Returns true when the labels need reconciliation (Fix Labels).
+ *
+ *   - exactly one status:* label, matching desired.status
+ *   - lifecycle blocked-by:* labels match desired.blockedBy exactly
+ *   - no legacy action:* / blocked:<team> labels
+ *   - if desired.status is status:completed, no blocked-by:* of any kind
+ *
+ * @param {string[]} actualLabels
+ * @param {{status: string, blockedBy: string[]}} desired
+ * @returns {boolean}
+ */
+export function computeLifecycleMismatch(actualLabels, desired) {
+  const statusLabels = actualLabels.filter(l => l.startsWith('status:'));
+  if (statusLabels.length !== 1 || statusLabels[0] !== desired.status) return true;
+
+  const actualBlocked = actualLabels.filter(l => LIFECYCLE_BLOCKED_BY.includes(l)).sort();
+  const wantBlocked = [...desired.blockedBy].sort();
+  if (actualBlocked.length !== wantBlocked.length) return true;
+  for (let i = 0; i < actualBlocked.length; i++) {
+    if (actualBlocked[i] !== wantBlocked[i]) return true;
+  }
+
+  if (desired.status === 'status:completed' &&
+      actualLabels.some(l => l.startsWith('blocked-by:'))) {
+    return true;
+  }
+
+  if (actualLabels.some(l => l.startsWith('action:'))) return true;
+  if (actualLabels.some(l => /^blocked:/i.test(l) && !/^blocked-by:/i.test(l))) return true;
+
+  return false;
+}
+
 /** All repo-level status:* label names (for ensure-create). */
 export const STATUS_LABEL_NAMES = STATUS_PHASES.map(p => `status:${p}`);
 

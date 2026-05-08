@@ -5,7 +5,7 @@
 import {
   extractBlockingTeam, extractDocumentation,
   extractRnD, extractDocPacket, extractRedTeam,
-  computeStatus, computeDesiredLabels, LIFECYCLE_BLOCKED_BY, RND_TEAMS,
+  computeStatus, computeDesiredLabels, computeLifecycleMismatch, LIFECYCLE_BLOCKED_BY, RND_TEAMS,
   newIssueBody, renderMarkdown,
 } from './markdown.js';
 import { toggleDetail, expandAll, collapseAll, getOpenCount } from './detail.js';
@@ -807,36 +807,6 @@ async function loadAllStakeholderBadges(items) {
 
   // Async second pass: fetch milestone progress and upgrade rnd-in-progress → waiting-for-doc-packet
   loadMilestoneProgressForPipeline(items, pat);
-}
-
-/**
- * Return true if the issue's status:* / lifecycle blocked-by:* / legacy action:* / legacy blocked:*
- * labels don't match the desired set.
- */
-function computeLifecycleMismatch(actualLabels, desired) {
-  // Check exactly one status:* label and it matches desired.status
-  const statusLabels = actualLabels.filter(l => l.startsWith('status:'));
-  if (statusLabels.length !== 1 || statusLabels[0] !== desired.status) return true;
-
-  // Check lifecycle blocked-by:* labels match desired set exactly.
-  const actualBlocked = actualLabels.filter(l => LIFECYCLE_BLOCKED_BY.includes(l)).sort();
-  const wantBlocked = [...desired.blockedBy].sort();
-  if (actualBlocked.length !== wantBlocked.length) return true;
-  for (let i = 0; i < actualBlocked.length; i++) {
-    if (actualBlocked[i] !== wantBlocked[i]) return true;
-  }
-
-  // A completed journey must have no blocked-by:* at all (including non-lifecycle ones).
-  if (desired.status === 'status:completed' &&
-      actualLabels.some(l => l.startsWith('blocked-by:'))) {
-    return true;
-  }
-
-  // Any legacy labels still present?
-  if (actualLabels.some(l => l.startsWith('action:'))) return true;
-  if (actualLabels.some(l => /^blocked:/i.test(l) && !/^blocked-by:/i.test(l))) return true;
-
-  return false;
 }
 
 async function loadMilestoneProgressForPipeline(items, pat) {
