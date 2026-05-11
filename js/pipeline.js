@@ -5,7 +5,7 @@
 import {
   extractBlockingTeam, extractDocumentation,
   extractRnD, extractDocPacket, extractRedTeam,
-  computeStatus, computeDesiredLabels, LIFECYCLE_BLOCKED_BY, RND_TEAMS,
+  computeStatus, computeDesiredLabels, computeLifecycleMismatch, LIFECYCLE_BLOCKED_BY, RND_TEAMS,
   newIssueBody, renderMarkdown,
 } from './markdown.js';
 import { toggleDetail, expandAll, collapseAll, getOpenCount } from './detail.js';
@@ -770,9 +770,10 @@ async function loadAllStakeholderBadges(items) {
     const docsPrRef = docsPrIdx >= 0 ? refResults[docsPrIdx] : null;
     item._refCache  = { redTeamLink, rtRef, docsPr, docsPrRef };
 
+    const issueClosed = String(item.content?.state || '').toUpperCase() === 'CLOSED';
     const status = computeStatus({
       rnd, docPacketLink, docsPr, docsPrRef, redTeamLink, redTeamRef: rtRef,
-      allMilestonesDone: false,
+      allMilestonesDone: false, issueClosed,
     });
     const desired = computeDesiredLabels(status, rnd.team);
 
@@ -808,30 +809,6 @@ async function loadAllStakeholderBadges(items) {
   loadMilestoneProgressForPipeline(items, pat);
 }
 
-/**
- * Return true if the issue's status:* / lifecycle blocked-by:* / legacy action:* / legacy blocked:*
- * labels don't match the desired set.
- */
-function computeLifecycleMismatch(actualLabels, desired) {
-  // Check exactly one status:* label and it matches desired.status
-  const statusLabels = actualLabels.filter(l => l.startsWith('status:'));
-  if (statusLabels.length !== 1 || statusLabels[0] !== desired.status) return true;
-
-  // Check lifecycle blocked-by:* labels match desired set exactly.
-  const actualBlocked = actualLabels.filter(l => LIFECYCLE_BLOCKED_BY.includes(l)).sort();
-  const wantBlocked = [...desired.blockedBy].sort();
-  if (actualBlocked.length !== wantBlocked.length) return true;
-  for (let i = 0; i < actualBlocked.length; i++) {
-    if (actualBlocked[i] !== wantBlocked[i]) return true;
-  }
-
-  // Any legacy labels still present?
-  if (actualLabels.some(l => l.startsWith('action:'))) return true;
-  if (actualLabels.some(l => /^blocked:/i.test(l) && !/^blocked-by:/i.test(l))) return true;
-
-  return false;
-}
-
 async function loadMilestoneProgressForPipeline(items, pat) {
   // Collect all unique roadmap milestone URLs so parent pages are fetched in parallel
   const allUrls = new Set();
@@ -851,10 +828,11 @@ async function loadMilestoneProgressForPipeline(items, pat) {
     const docsPrRef = item._refCache?.docsPrRef || null;
     const rtRef     = item._refCache?.rtRef     || null;
 
+    const issueClosed = String(item.content?.state || '').toUpperCase() === 'CLOSED';
     // Only relevant pre-doc-packet (has team + milestones, no doc packet yet).
     const baseStatus = computeStatus({
       rnd, docPacketLink, docsPr, docsPrRef, redTeamLink: redTeam.tracking, redTeamRef: rtRef,
-      allMilestonesDone: false,
+      allMilestonesDone: false, issueClosed,
     });
     if (!['rnd-in-progress','rnd-overdue','confirm-date'].includes(baseStatus)) continue;
 
