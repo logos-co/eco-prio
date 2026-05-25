@@ -416,6 +416,31 @@ function renderFilterBar(openItems = []) {
   return `<div id="filter-bar" class="space-y-1.5">${typeRow}${teamRow}${releaseRow}${actionRow}</div>`;
 }
 
+/**
+ * Apply drag-gating state to a single .pipeline-row element. Pure: depends only
+ * on its inputs and the element's own children, never on module-level filter state.
+ * Exported so tests can exercise the filter→edit→unfilter regression without a
+ * full DOM.
+ */
+export function applyDragGating(rowEl, { canWrite, anyFilter }) {
+  const handle = rowEl.querySelector('.drag-handle');
+  const rank   = rowEl.querySelector('.rank-number');
+  const canDragNow = canWrite && !anyFilter;
+  if (canDragNow) {
+    rowEl.setAttribute('draggable', 'true');
+    rowEl.classList.add('draggable-row');
+    delete rowEl.dataset.dragDisabled;
+    if (handle) handle.classList.remove('hidden');
+    if (rank)   rank.classList.add('hidden');
+  } else {
+    rowEl.setAttribute('draggable', 'false');
+    rowEl.classList.remove('draggable-row');
+    if (anyFilter) rowEl.dataset.dragDisabled = 'true';
+    if (handle) handle.classList.add('hidden');
+    if (rank)   rank.classList.remove('hidden');
+  }
+}
+
 function applyFilter(allItems) {
   const noMatch   = document.getElementById('no-filter-match');
   const anyFilter = activeTeamFilter || activeStateFilter || activeTypeFilter || activeReleaseFilter.size > 0;
@@ -424,25 +449,12 @@ function applyFilter(allItems) {
   const dragHint = document.getElementById('drag-hint');
   if (dragHint) dragHint.classList.toggle('hidden', !!anyFilter);
 
-  // Toggle drag: disable when any filter active
+  // Toggle drag gating per row. Re-enable is unconditional (not gated on a
+  // previous-disabled flag), since rows may render non-draggable when a filter
+  // is restored from the URL before edit mode is toggled on.
+  const canWrite = hasWritePAT();
   document.querySelectorAll('#pipeline-list .pipeline-row').forEach(el => {
-    const handle = el.querySelector('.drag-handle');
-    const rank   = el.querySelector('.rank-number');
-    if (anyFilter) {
-      if (el.getAttribute('draggable') === 'true') {
-        el.setAttribute('draggable', 'false');
-        el.dataset.dragDisabled = 'true';
-        el.classList.remove('draggable-row');
-      }
-      if (handle) handle.classList.add('hidden');
-      if (rank)   rank.classList.remove('hidden');
-    } else if (el.dataset.dragDisabled) {
-      el.setAttribute('draggable', 'true');
-      el.classList.add('draggable-row');
-      delete el.dataset.dragDisabled;
-      if (handle) handle.classList.remove('hidden');
-      if (rank)   rank.classList.add('hidden');
-    }
+    applyDragGating(el, { canWrite, anyFilter });
   });
 
   if (!anyFilter) {

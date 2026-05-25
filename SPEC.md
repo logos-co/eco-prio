@@ -18,11 +18,13 @@ The app is a static SPA with no build step.
 
 | Command | Purpose |
 |---|---|
-| `npx serve .` | Serve the app locally on `http://localhost:3000` |
-| `node --check js/pipeline.js` | Syntax-check the filter module after edits |
+| `npm run serve` | Serve the app locally on `http://localhost:3000` (wraps `npx serve .`) |
+| `npm test` | Run the `node:test` suite in `tests/*.test.mjs` |
+| `npm run lint` | Run ESLint over `js/` and `tests/` |
+| `node --check js/pipeline.js` | Quick syntax-check after edits, no test run |
 | `gh pr create` | Open a PR (standard repo workflow) |
 
-There is no test runner, linter, or formatter configured for this project. Verification is manual in a browser.
+Automated tests (`node:test`, no JSDOM) cover render output and pure logic. UI behavior that depends on real DOM/event flow is still verified manually in a browser per the smoke checklist below.
 
 ## 3. Project Structure
 
@@ -56,9 +58,9 @@ Follow the conventions already present in `js/pipeline.js`:
 
 ## 5. Testing Strategy
 
-Manual browser verification, since the repo has no automated test harness.
+Two layers: `node:test` covers render output and pure helpers (see `tests/render.test.mjs`, `tests/drag-gating.test.mjs`); manual browser smoke covers DOM/event flow. New test files must be added to the `test` script in `package.json` — it lists files explicitly because `node --test` does not glob across `tests/*` from a bash invocation.
 
-**Smoke checklist** (run `npx serve .` and open `http://localhost:3000`):
+**Smoke checklist** (run `npm run serve` and open `http://localhost:3000`):
 
 1. "Release:" row appears with one pill per release label present on the board, including `testnet unscheduled` when journeys carry it.
 2. Click a release pill → only matching journeys remain; URL gains `?release=<slug>`.
@@ -70,7 +72,7 @@ Manual browser verification, since the repo has no automated test harness.
 8. Deselect all release pills → `release=` param drops from URL; full list returns.
 9. URL with an unknown release slug (e.g. typo) is silently ignored on restore.
 
-**Syntax gate.** Run `node --check js/pipeline.js` before committing.
+**Pre-commit gate.** Run `npm test` and `npm run lint`. Both must pass.
 
 ## 6. Boundaries
 

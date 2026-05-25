@@ -76,7 +76,10 @@ function slotFromY(clientY) {
 }
 
 function attachDragHandlers() {
-  const rows = listEl.querySelectorAll('[draggable="true"]');
+  // Attach to every row, not just currently-draggable ones: the draggable
+  // attribute can flip at runtime (filter toggled off → row becomes draggable),
+  // and the browser only fires dragstart when draggable="true" at mousedown.
+  const rows = listEl.querySelectorAll('.pipeline-row');
   rows.forEach(row => {
     if (row._dragInitialised) return;
     row._dragInitialised = true;
