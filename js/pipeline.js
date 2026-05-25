@@ -14,9 +14,10 @@ import { teamColor, statusBadge, showToast } from './app.js';
 import { fetchRefsBatch, createIssue, addItemToProject, fetchMilestoneProgress, ensureLifecycleLabels } from './api.js';
 
 // Active filters — persist until project reload
-let activeTeamFilter  = null; // null | team slug | 'unassigned'
-let activeStateFilter = null; // null | 'blocked-by:<...>' | 'mismatch'
-let activeTypeFilter  = null; // null | 'gui-user' | 'developer' | 'node-operator' | 'untagged'
+let activeTeamFilter    = null;        // null | team slug | 'unassigned'
+let activeStateFilter   = null;        // null | 'blocked-by:<...>' | 'mismatch'
+let activeTypeFilter    = null;        // null | 'gui-user' | 'developer' | 'node-operator' | 'untagged'
+let activeReleaseFilter = new Set();   // multi-select; slug form (e.g. 'testnet-v0-1')
 
 // Persona type labels — single source of truth.
 const TYPE_DEFS = [
@@ -28,6 +29,17 @@ const UNTAGGED_COLOR = '#808C78';
 const TYPE_LABEL_TO_SLUG = Object.fromEntries(TYPE_DEFS.map(d => [d.label, d.slug]));
 const TYPE_SLUGS         = new Set([...TYPE_DEFS.map(d => d.slug), 'untagged']);
 const TYPE_COLOR         = (slug) => slug === 'untagged' ? UNTAGGED_COLOR : (TYPE_DEFS.find(d => d.slug === slug)?.color ?? UNTAGGED_COLOR);
+
+// Release labels — palette-ordered; unknown releases fall back to neutral color.
+const RELEASE_PALETTE = {
+  'testnet v0.1':         '#4E635E',
+  'testnet v0.2':         '#2E86AB',
+  'testnet v0.3':         '#A25C28',
+  'testnet unscheduled':  '#808C78',
+};
+const RELEASE_FALLBACK_COLOR = '#808C78';
+const releaseSlug  = (label) => label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const releaseColor = (label) => RELEASE_PALETTE[label.trim().toLowerCase()] || RELEASE_FALLBACK_COLOR;
 
 // Global mismatch registry: itemId → { item, actualLabels, desiredStatus, desiredBlockedBy }
 const _mismatchedItems = new Map();
@@ -80,7 +92,21 @@ export function renderPipeline(container, items, projectTitle, projectId) {
   const _typeParam  = (_urlParams.get('type') || '').trim().toLowerCase();
   activeTypeFilter  = TYPE_SLUGS.has(_typeParam) ? _typeParam : null;
 
-  const canDrag  = hasWritePAT() && !activeTeamFilter && !activeStateFilter && !activeTypeFilter;
+  // Multi-select release filter — validated against slugs actually present on board items.
+  const _presentReleaseSlugs = new Set();
+  for (const it of items) {
+    for (const l of (it.content?.labels?.nodes || [])) {
+      if (/^testnet\b/i.test(l.name.trim())) _presentReleaseSlugs.add(releaseSlug(l.name));
+    }
+  }
+  activeReleaseFilter = new Set(
+    (_urlParams.get('release') || '')
+      .split(',')
+      .map(s => s.trim().toLowerCase())
+      .filter(s => _presentReleaseSlugs.has(s))
+  );
+
+  const canDrag  = hasWritePAT() && !activeTeamFilter && !activeStateFilter && !activeTypeFilter && activeReleaseFilter.size === 0;
 
   const openItems   = items.filter(i => i.content?.state !== 'CLOSED');
   const closedItems = items
@@ -210,7 +236,12 @@ export function renderPipeline(container, items, projectTitle, projectId) {
       syncFiltersToUrl();
     }
   }
-  if (activeTeamFilter || activeStateFilter || activeTypeFilter) applyFilter(allItems);
+  // Activate restored release pills (multi-select)
+  for (const slug of activeReleaseFilter) {
+    const btn = document.querySelector(`.filter-release-pill[data-release="${CSS.escape(slug)}"]`);
+    if (btn) releasePillActivate(btn);
+  }
+  if (activeTeamFilter || activeStateFilter || activeTypeFilter || activeReleaseFilter.size > 0) applyFilter(allItems);
   attachNewJourneyHandler(projectId);
   loadAllStakeholderBadges(allItems);
   loadInstructions();
@@ -285,6 +316,8 @@ function renderFilterBar(openItems = []) {
   // Persona type slugs present on at least one open journey, plus whether any journey is untagged.
   const typeSet = new Set();
   let hasUntagged = false;
+  // Release labels present on at least one open journey. Map slug → display label.
+  const releaseLabelsBySlug = new Map();
   for (const item of openItems) {
     const { rnd } = getParsedSections(item);
     if (rnd.team) teamSet.add(rnd.team);
@@ -295,6 +328,9 @@ function renderFilterBar(openItems = []) {
     for (const l of labels) {
       const slug = TYPE_LABEL_TO_SLUG[l.name.trim().toLowerCase()];
       if (slug) { typeSet.add(slug); foundType = true; }
+      if (/^testnet\b/i.test(l.name.trim())) {
+        releaseLabelsBySlug.set(releaseSlug(l.name), l.name.trim());
+      }
     }
     if (!foundType) hasUntagged = true;
   }
@@ -338,6 +374,29 @@ function renderFilterBar(openItems = []) {
       ${hasUntagged ? typePill('untagged', 'untagged') : ''}
     </div>` : '';
 
+  // Release row — multi-select. Order: palette order first, then any extras alphabetically.
+  const releasePill = (slug, label) => {
+    const c = releaseColor(label);
+    return `<button class="filter-release-pill inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all"
+            data-release="${escapeHtml(slug)}" data-release-color="${escapeHtml(c)}"
+            style="border:1px solid ${c}66;background:${c}18;color:${c};font-family:Arial,Helvetica,sans-serif;cursor:pointer;">
+      ${escapeHtml(label)}
+    </button>`;
+  };
+  const paletteOrder = Object.keys(RELEASE_PALETTE);
+  const presentSlugs = [...releaseLabelsBySlug.keys()];
+  const orderedSlugs = [
+    ...paletteOrder.map(l => releaseSlug(l)).filter(s => releaseLabelsBySlug.has(s)),
+    ...presentSlugs
+      .filter(s => !paletteOrder.some(l => releaseSlug(l) === s))
+      .sort((a, b) => releaseLabelsBySlug.get(a).localeCompare(releaseLabelsBySlug.get(b))),
+  ];
+  const releaseRow = orderedSlugs.length > 0 ? `
+    <div id="release-filter-bar" class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs flex-none" style="color:#808C78;font-family:Arial,Helvetica,sans-serif;">Release:</span>
+      ${orderedSlugs.map(s => releasePill(s, releaseLabelsBySlug.get(s))).join('')}
+    </div>` : '';
+
   // "Blocked by" filter pills — order: R&D (all) → docs → red team → per-team → unassigned → mismatch.
   const rndTeamsPresent = [...teamSet].sort();
   const blockedByFilters = [
@@ -354,12 +413,12 @@ function renderFilterBar(openItems = []) {
       ${blockedByFilters.map(f => pill('filter-action-pill', `data-action="${escapeHtml(f.key)}"`, f.label)).join('')}
     </div>`;
 
-  return `<div id="filter-bar" class="space-y-1.5">${typeRow}${teamRow}${actionRow}</div>`;
+  return `<div id="filter-bar" class="space-y-1.5">${typeRow}${teamRow}${releaseRow}${actionRow}</div>`;
 }
 
 function applyFilter(allItems) {
   const noMatch   = document.getElementById('no-filter-match');
-  const anyFilter = activeTeamFilter || activeStateFilter || activeTypeFilter;
+  const anyFilter = activeTeamFilter || activeStateFilter || activeTypeFilter || activeReleaseFilter.size > 0;
 
   // Toggle drag hint
   const dragHint = document.getElementById('drag-hint');
@@ -424,7 +483,13 @@ function applyFilter(allItems) {
       matchesType = activeTypeFilter === 'untagged' ? types.length === 0 : types.includes(activeTypeFilter);
     }
 
-    const matches = matchesTeam && matchesAction && matchesType;
+    let matchesRelease = true;
+    if (activeReleaseFilter.size > 0) {
+      const releases = (wrapper.dataset.releases || '').split(' ').filter(Boolean);
+      matchesRelease = releases.some(r => activeReleaseFilter.has(r));
+    }
+
+    const matches = matchesTeam && matchesAction && matchesType && matchesRelease;
     wrapper.classList.toggle('hidden', !matches);
     if (matches) visible++;
   }
@@ -433,9 +498,10 @@ function applyFilter(allItems) {
 
 function syncFiltersToUrl() {
   const params = new URLSearchParams();
-  if (activeTeamFilter)  params.set('team',   activeTeamFilter);
-  if (activeStateFilter) params.set('action', activeStateFilter);
-  if (activeTypeFilter)  params.set('type',   activeTypeFilter);
+  if (activeTeamFilter)            params.set('team',    activeTeamFilter);
+  if (activeStateFilter)           params.set('action',  activeStateFilter);
+  if (activeTypeFilter)            params.set('type',    activeTypeFilter);
+  if (activeReleaseFilter.size > 0) params.set('release', [...activeReleaseFilter].join(','));
   const qs = params.toString();
   history.replaceState(null, '', qs ? '?' + qs : window.location.pathname);
 }
@@ -495,6 +561,20 @@ function typePillActivate(btn) {
   btn.style.borderColor = `${c}cc`;
 }
 
+function releasePillReset(btn) {
+  const c = btn.dataset.releaseColor || RELEASE_FALLBACK_COLOR;
+  btn.style.background  = `${c}18`;
+  btn.style.color       = c;
+  btn.style.borderColor = `${c}66`;
+}
+
+function releasePillActivate(btn) {
+  const c = btn.dataset.releaseColor || RELEASE_FALLBACK_COLOR;
+  btn.style.background  = `${c}33`;
+  btn.style.color       = c;
+  btn.style.borderColor = `${c}cc`;
+}
+
 function attachFilterHandlers(allItems) {
   // Action pills
   document.querySelectorAll('.filter-action-pill').forEach(btn => {
@@ -524,6 +604,22 @@ function attachFilterHandlers(allItems) {
         document.querySelectorAll('.filter-team-pill').forEach(teamPillReset);
         activeTeamFilter = team;
         teamPillActivate(btn);
+      }
+      applyFilter(allItems);
+      syncFiltersToUrl();
+    });
+  });
+
+  // Release pills — multi-select (OR logic)
+  document.querySelectorAll('.filter-release-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const slug = btn.dataset.release;
+      if (activeReleaseFilter.has(slug)) {
+        activeReleaseFilter.delete(slug);
+        releasePillReset(btn);
+      } else {
+        activeReleaseFilter.add(slug);
+        releasePillActivate(btn);
       }
       applyFilter(allItems);
       syncFiltersToUrl();
@@ -571,13 +667,14 @@ function renderPipelineRow(item, index, canDrag, canWrite = false) {
   const typeLabels    = labels.filter(l => /^(gui user|developer|node operator)$/i.test(l.name.trim()));
   const releaseLabels = labels.filter(l => /^testnet\b/i.test(l.name.trim()));
   const typeSlugs     = typeLabels.map(l => TYPE_LABEL_TO_SLUG[l.name.trim().toLowerCase()]).filter(Boolean);
+  const releaseSlugs  = releaseLabels.map(l => releaseSlug(l.name));
 
   const JOURNEY_COLORS = { 'gui user': 'D94F45', 'developer': '3B7CB8', 'node operator': 'C4912C' };
-  const RELEASE_COLORS = { 'testnet v0.1': '4E635E', 'testnet v0.2': '2E86AB', 'testnet v0.3': 'A25C28', 'testnet unscheduled': '808C78' };
 
   const labelPill = (l) => {
     const key = l.name.trim().toLowerCase();
-    const raw = JOURNEY_COLORS[key] || RELEASE_COLORS[key] || l.color;
+    const paletteHex = RELEASE_PALETTE[key]?.slice(1);
+    const raw = JOURNEY_COLORS[key] || paletteHex || l.color;
     const textColor = raw === l.color && l.color.toLowerCase() === '0e2618' ? '4E635E' : raw;
     return `<span class="inline-flex items-center px-1.5 py-px rounded text-xs font-medium"
              style="background:#${raw}18;color:#${textColor};border:1px solid #${raw}50;font-family:Arial,Helvetica,sans-serif;">
@@ -596,7 +693,8 @@ function renderPipelineRow(item, index, canDrag, canWrite = false) {
     <div id="filter-item-${item.id}"
          data-action-labels="${escapeHtml(JSON.stringify(blockedByLabels))}"
          data-rnd-team="${escapeHtml(rndTeamSlug)}"
-         data-types="${escapeHtml(typeSlugs.join(' '))}">
+         data-types="${escapeHtml(typeSlugs.join(' '))}"
+         data-releases="${escapeHtml(releaseSlugs.join(' '))}">
       <div
         id="row-${item.id}"
         data-item-id="${item.id}"
