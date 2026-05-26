@@ -18,6 +18,7 @@ let activeTeamFilter    = null;        // null | team slug | 'unassigned'
 let activeStateFilter   = null;        // null | 'blocked-by:<...>' | 'mismatch'
 let activeTypeFilter    = null;        // null | 'gui-user' | 'developer' | 'node-operator' | 'untagged'
 let activeReleaseFilter = new Set();   // multi-select; slug form (e.g. 'testnet-v0-1')
+let activeDriverFilter  = null;        // null | driver slug (e.g. 'rfp')
 
 // Persona type labels — single source of truth.
 const TYPE_DEFS = [
@@ -50,6 +51,15 @@ function driverSlugsFromLabels(labels) {
     .filter(n => n.startsWith('driver:'))
     .map(n => n.slice('driver:'.length))
     .filter(s => DRIVER_SLUGS.has(s));
+}
+
+// Pure per-row driver filter. Given a row's serialized data-drivers string
+// (space-separated slugs) and the active driver filter, return whether the row
+// should remain visible.
+export function matchesDriverFilter(rowDriversAttr, activeDriver) {
+  if (!activeDriver) return true;
+  const drivers = (rowDriversAttr || '').split(' ').filter(Boolean);
+  return drivers.includes(activeDriver);
 }
 
 // Render the Driver-column cell contents. Empty string when no known drivers
@@ -125,6 +135,8 @@ export function renderPipeline(container, items, projectTitle, projectId) {
   activeStateFilter = _urlParams.get('action') || null;
   const _typeParam  = (_urlParams.get('type') || '').trim().toLowerCase();
   activeTypeFilter  = TYPE_SLUGS.has(_typeParam) ? _typeParam : null;
+  const _driverParam = (_urlParams.get('driver') || '').trim().toLowerCase();
+  activeDriverFilter = DRIVER_SLUGS.has(_driverParam) ? _driverParam : null;
 
   // Multi-select release filter — validated against slugs actually present on board items.
   const _presentReleaseSlugs = new Set();
@@ -140,7 +152,7 @@ export function renderPipeline(container, items, projectTitle, projectId) {
       .filter(s => _presentReleaseSlugs.has(s))
   );
 
-  const canDrag  = hasWritePAT() && !activeTeamFilter && !activeStateFilter && !activeTypeFilter && activeReleaseFilter.size === 0;
+  const canDrag  = hasWritePAT() && !activeTeamFilter && !activeStateFilter && !activeTypeFilter && !activeDriverFilter && activeReleaseFilter.size === 0;
 
   const openItems   = items.filter(i => i.content?.state !== 'CLOSED');
   const closedItems = items
@@ -271,12 +283,22 @@ export function renderPipeline(container, items, projectTitle, projectId) {
       syncFiltersToUrl();
     }
   }
+  if (activeDriverFilter) {
+    const btn = document.querySelector(`.filter-driver-pill[data-driver="${CSS.escape(activeDriverFilter)}"]`);
+    if (btn) {
+      driverPillActivate(btn);
+    } else {
+      // Driver row didn't render (no journey on the board carries this slug).
+      activeDriverFilter = null;
+      syncFiltersToUrl();
+    }
+  }
   // Activate restored release pills (multi-select)
   for (const slug of activeReleaseFilter) {
     const btn = document.querySelector(`.filter-release-pill[data-release="${CSS.escape(slug)}"]`);
     if (btn) releasePillActivate(btn);
   }
-  if (activeTeamFilter || activeStateFilter || activeTypeFilter || activeReleaseFilter.size > 0) applyFilter(allItems);
+  if (activeTeamFilter || activeStateFilter || activeTypeFilter || activeDriverFilter || activeReleaseFilter.size > 0) applyFilter(allItems);
   attachNewJourneyHandler(projectId);
   loadAllStakeholderBadges(allItems);
   loadInstructions();
@@ -353,6 +375,8 @@ function renderFilterBar(openItems = []) {
   let hasUntagged = false;
   // Release labels present on at least one open journey. Map slug → display label.
   const releaseLabelsBySlug = new Map();
+  // Driver slugs present on at least one open journey.
+  const driverSet = new Set();
   for (const item of openItems) {
     const { rnd } = getParsedSections(item);
     if (rnd.team) teamSet.add(rnd.team);
@@ -365,6 +389,10 @@ function renderFilterBar(openItems = []) {
       if (slug) { typeSet.add(slug); foundType = true; }
       if (/^testnet\b/i.test(l.name.trim())) {
         releaseLabelsBySlug.set(releaseSlug(l.name), l.name.trim());
+      }
+      if (l.name.startsWith('driver:')) {
+        const ds = l.name.slice('driver:'.length);
+        if (DRIVER_SLUGS.has(ds)) driverSet.add(ds);
       }
     }
     if (!foundType) hasUntagged = true;
@@ -409,6 +437,21 @@ function renderFilterBar(openItems = []) {
       ${hasUntagged ? typePill('untagged', 'untagged') : ''}
     </div>` : '';
 
+  // Driver row — single-select. Order follows DRIVER_DEFS, only emit pills for drivers present on open items.
+  const driverPill = (slug, label) => {
+    const c = DRIVER_COLOR(slug);
+    return `<button class="filter-driver-pill inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all"
+            data-driver="${escapeHtml(slug)}"
+            style="border:1px solid ${c}40;background:${c}10;color:${c};font-family:Arial,Helvetica,sans-serif;cursor:pointer;">
+      ${escapeHtml(label)}
+    </button>`;
+  };
+  const driverRow = driverSet.size > 0 ? `
+    <div id="driver-filter-bar" class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs flex-none" style="color:#808C78;font-family:Arial,Helvetica,sans-serif;">Driver:</span>
+      ${DRIVER_DEFS.filter(d => driverSet.has(d.slug)).map(d => driverPill(d.slug, d.label)).join('')}
+    </div>` : '';
+
   // Release row — multi-select. Order: palette order first, then any extras alphabetically.
   const releasePill = (slug, label) => {
     const c = releaseColor(label);
@@ -448,7 +491,7 @@ function renderFilterBar(openItems = []) {
       ${blockedByFilters.map(f => pill('filter-action-pill', `data-action="${escapeHtml(f.key)}"`, f.label)).join('')}
     </div>`;
 
-  return `<div id="filter-bar" class="space-y-1.5">${typeRow}${teamRow}${releaseRow}${actionRow}</div>`;
+  return `<div id="filter-bar" class="space-y-1.5">${typeRow}${driverRow}${teamRow}${releaseRow}${actionRow}</div>`;
 }
 
 /**
@@ -478,7 +521,7 @@ export function applyDragGating(rowEl, { canWrite, anyFilter }) {
 
 function applyFilter(allItems) {
   const noMatch   = document.getElementById('no-filter-match');
-  const anyFilter = activeTeamFilter || activeStateFilter || activeTypeFilter || activeReleaseFilter.size > 0;
+  const anyFilter = activeTeamFilter || activeStateFilter || activeTypeFilter || activeDriverFilter || activeReleaseFilter.size > 0;
 
   // Toggle drag hint
   const dragHint = document.getElementById('drag-hint');
@@ -536,7 +579,9 @@ function applyFilter(allItems) {
       matchesRelease = releases.some(r => activeReleaseFilter.has(r));
     }
 
-    const matches = matchesTeam && matchesAction && matchesType && matchesRelease;
+    const matchesDriver = matchesDriverFilter(wrapper.dataset.drivers, activeDriverFilter);
+
+    const matches = matchesTeam && matchesAction && matchesType && matchesRelease && matchesDriver;
     wrapper.classList.toggle('hidden', !matches);
     if (matches) visible++;
   }
@@ -548,6 +593,7 @@ function syncFiltersToUrl() {
   if (activeTeamFilter)            params.set('team',    activeTeamFilter);
   if (activeStateFilter)           params.set('action',  activeStateFilter);
   if (activeTypeFilter)            params.set('type',    activeTypeFilter);
+  if (activeDriverFilter)          params.set('driver',  activeDriverFilter);
   if (activeReleaseFilter.size > 0) params.set('release', [...activeReleaseFilter].join(','));
   const qs = params.toString();
   history.replaceState(null, '', qs ? '?' + qs : window.location.pathname);
@@ -622,6 +668,20 @@ function releasePillActivate(btn) {
   btn.style.borderColor = `${c}cc`;
 }
 
+function driverPillReset(btn) {
+  const c = DRIVER_COLOR(btn.dataset.driver);
+  btn.style.background  = `${c}10`;
+  btn.style.color       = c;
+  btn.style.borderColor = `${c}40`;
+}
+
+function driverPillActivate(btn) {
+  const c = DRIVER_COLOR(btn.dataset.driver);
+  btn.style.background  = `${c}33`;
+  btn.style.color       = c;
+  btn.style.borderColor = `${c}cc`;
+}
+
 function attachFilterHandlers(allItems) {
   // Action pills
   document.querySelectorAll('.filter-action-pill').forEach(btn => {
@@ -684,6 +744,23 @@ function attachFilterHandlers(allItems) {
         document.querySelectorAll('.filter-type-pill').forEach(typePillReset);
         activeTypeFilter = slug;
         typePillActivate(btn);
+      }
+      applyFilter(allItems);
+      syncFiltersToUrl();
+    });
+  });
+
+  // Driver pills — single-select
+  document.querySelectorAll('.filter-driver-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const slug = btn.dataset.driver;
+      if (activeDriverFilter === slug) {
+        activeDriverFilter = null;
+        driverPillReset(btn);
+      } else {
+        document.querySelectorAll('.filter-driver-pill').forEach(driverPillReset);
+        activeDriverFilter = slug;
+        driverPillActivate(btn);
       }
       applyFilter(allItems);
       syncFiltersToUrl();

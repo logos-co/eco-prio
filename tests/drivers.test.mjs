@@ -12,7 +12,7 @@ globalThis.localStorage = {
 };
 globalThis.window = globalThis;
 
-const { DRIVER_DEFS, DRIVER_SLUGS, DRIVER_COLOR, renderDriverCell } = await import('../js/pipeline.js');
+const { DRIVER_DEFS, DRIVER_SLUGS, DRIVER_COLOR, renderDriverCell, matchesDriverFilter } = await import('../js/pipeline.js');
 
 // ─── DRIVER_DEFS shape ───────────────────────────────────────────────────────
 
@@ -60,4 +60,26 @@ test('renderDriverCell: mixed known + unknown only renders the known one', () =>
   const html = renderDriverCell([{ name: 'driver:rfp' }, { name: 'driver:foo' }]);
   assert.match(html, />rfp</);
   assert.doesNotMatch(html, />foo</);
+});
+
+// ─── matchesDriverFilter: per-row filter logic ───────────────────────────────
+
+test('matchesDriverFilter: no active filter → always matches', () => {
+  assert.equal(matchesDriverFilter('rfp', null), true);
+  assert.equal(matchesDriverFilter('', null), true);
+  assert.equal(matchesDriverFilter('quest sample-app', null), true);
+});
+
+test('matchesDriverFilter: row carries the active driver → matches', () => {
+  assert.equal(matchesDriverFilter('rfp', 'rfp'), true);
+  assert.equal(matchesDriverFilter('rfp quest', 'quest'), true);
+});
+
+test('matchesDriverFilter: row does not carry the active driver → does not match', () => {
+  assert.equal(matchesDriverFilter('rfp', 'quest'), false);
+  assert.equal(matchesDriverFilter('', 'rfp'), false);
+});
+
+test('matchesDriverFilter: undefined dataset value coerces to no-match', () => {
+  assert.equal(matchesDriverFilter(undefined, 'rfp'), false);
 });
