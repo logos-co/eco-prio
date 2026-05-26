@@ -30,6 +30,18 @@ const TYPE_LABEL_TO_SLUG = Object.fromEntries(TYPE_DEFS.map(d => [d.label, d.slu
 const TYPE_SLUGS         = new Set([...TYPE_DEFS.map(d => d.slug), 'untagged']);
 const TYPE_COLOR         = (slug) => slug === 'untagged' ? UNTAGGED_COLOR : (TYPE_DEFS.find(d => d.slug === slug)?.color ?? UNTAGGED_COLOR);
 
+// Driver labels — fixed allowlist. New drivers require a code change here AND a label
+// created in the repo. Orthogonal to the lifecycle: drivers do not gate status, sort, or
+// Fix Labels. See SPEC.md Part III.
+export const DRIVER_DEFS = [
+  { slug: 'rfp',        label: 'rfp',        color: '#8C6A2E' },
+  { slug: 'quest',      label: 'quest',      color: '#7A4E73' },
+  { slug: 'sample-app', label: 'sample-app', color: '#5E8C6A' },
+];
+export const DRIVER_SLUG_TO_LABEL = Object.fromEntries(DRIVER_DEFS.map(d => [d.slug, d.label]));
+export const DRIVER_SLUGS         = new Set(DRIVER_DEFS.map(d => d.slug));
+export const DRIVER_COLOR         = (slug) => DRIVER_DEFS.find(d => d.slug === slug)?.color ?? UNTAGGED_COLOR;
+
 // Release labels — palette-ordered; unknown releases fall back to neutral color.
 const RELEASE_PALETTE = {
   'testnet v0.1':         '#4E635E',
@@ -115,13 +127,14 @@ export function renderPipeline(container, items, projectTitle, projectId) {
 
   const columnHeader = `
     <div class="hidden md:block pointer-events-none select-none">
-      <div class="grid grid-cols-[1fr_8rem_9rem_12rem_9rem_2rem] gap-4 items-end px-4 py-1.5 text-xs font-semibold uppercase tracking-wider"
+      <div class="grid grid-cols-[1fr_6.5rem_9rem_11rem_8rem_5rem_2rem] gap-1 items-end px-4 py-1.5 text-xs font-semibold uppercase tracking-wider"
            style="color:#808C78;font-family:Arial,Helvetica,sans-serif;border:1px solid transparent;border-left:3px solid transparent;border-bottom:1px solid rgba(78,99,94,0.2);">
         <div>Journey</div>
-        <div>Journey<br>Type</div>
+        <div class="pl-3">Journey<br>Type</div>
         <div>Target<br>Release</div>
         <div>Status</div>
         <div>Blocked<br>By</div>
+        <div>Driver</div>
         <div></div>
       </div>
     </div>`;
@@ -714,7 +727,7 @@ function renderPipelineRow(item, index, canDrag, canWrite = false) {
         data-repo="${escapeHtml(repo)}"
         data-issue="${issue.number}"
         draggable="${canDrag}"
-        class="pipeline-row grid grid-cols-[1fr_auto] md:grid-cols-[1fr_8rem_9rem_12rem_9rem_2rem] gap-4 items-center px-4 py-3 rounded cursor-pointer transition-all select-none ${canDrag ? 'draggable-row' : ''}"
+        class="pipeline-row grid grid-cols-[1fr_auto] md:grid-cols-[1fr_6.5rem_9rem_11rem_8rem_5rem_2rem] gap-1 items-center px-4 py-3 rounded cursor-pointer transition-all select-none ${canDrag ? 'draggable-row' : ''}"
         style="background:rgba(255,255,255,0.75);border:1px solid rgba(78,99,94,0.2);border-left:3px solid ${blockedTeam ? teamColor(blockedTeam, 0.6) : 'transparent'};"
         onmouseover="this.style.background='rgba(78,99,94,0.1)'"
         onmouseout="this.style.background='rgba(255,255,255,0.75)'"
@@ -747,7 +760,7 @@ function renderPipelineRow(item, index, canDrag, canWrite = false) {
         </div>
 
         <!-- Journey Type column (desktop) -->
-        <div class="hidden md:flex items-center flex-wrap gap-1">
+        <div class="hidden md:flex items-center flex-wrap gap-1 pl-3">
           ${metaLabelsHtml || `<span class="text-xs italic" style="color:#808C78;font-family:Arial,Helvetica,sans-serif;">—</span>`}
         </div>
 
@@ -761,6 +774,9 @@ function renderPipelineRow(item, index, canDrag, canWrite = false) {
 
         <!-- Action needed from column (desktop) -->
         <div id="action-${item.id}" class="hidden md:flex items-center gap-1 flex-wrap"></div>
+
+        <!-- Driver column (desktop) -->
+        <div class="hidden md:flex items-center flex-wrap gap-1"></div>
 
         <div class="flex items-center justify-end">
           <svg id="chevron-${item.id}" class="w-4 h-4 transition-all flex-none" style="color:#808C78;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
