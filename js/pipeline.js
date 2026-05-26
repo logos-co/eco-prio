@@ -42,6 +42,28 @@ export const DRIVER_SLUG_TO_LABEL = Object.fromEntries(DRIVER_DEFS.map(d => [d.s
 export const DRIVER_SLUGS         = new Set(DRIVER_DEFS.map(d => d.slug));
 export const DRIVER_COLOR         = (slug) => DRIVER_DEFS.find(d => d.slug === slug)?.color ?? UNTAGGED_COLOR;
 
+// Driver slugs present on an issue, filtered through the allowlist. Unknown
+// `driver:foo` labels are silently dropped — spec §6 forbids ad-hoc drivers.
+function driverSlugsFromLabels(labels) {
+  return labels
+    .map(l => l.name)
+    .filter(n => n.startsWith('driver:'))
+    .map(n => n.slice('driver:'.length))
+    .filter(s => DRIVER_SLUGS.has(s));
+}
+
+// Render the Driver-column cell contents. Empty string when no known drivers
+// are present (spec: empty cells stay blank, no placeholder).
+export function renderDriverCell(labels) {
+  const slugs = driverSlugsFromLabels(labels);
+  if (slugs.length === 0) return '';
+  return slugs.map(slug => {
+    const hex = DRIVER_COLOR(slug).slice(1);
+    return `<span class="inline-flex items-center px-1.5 py-px rounded text-xs font-medium"
+             style="background:#${hex}18;color:#${hex};border:1px solid #${hex}50;font-family:Arial,Helvetica,sans-serif;">${slug}</span>`;
+  }).join(' ');
+}
+
 // Release labels — palette-ordered; unknown releases fall back to neutral color.
 const RELEASE_PALETTE = {
   'testnet v0.1':         '#4E635E',
@@ -693,6 +715,8 @@ function renderPipelineRow(item, index, canDrag, canWrite = false) {
   const releaseLabels = labels.filter(l => /^testnet\b/i.test(l.name.trim()));
   const typeSlugs     = typeLabels.map(l => TYPE_LABEL_TO_SLUG[l.name.trim().toLowerCase()]).filter(Boolean);
   const releaseSlugs  = releaseLabels.map(l => releaseSlug(l.name));
+  const driverSlugs   = driverSlugsFromLabels(labels);
+  const driverHtml    = renderDriverCell(labels);
 
   const JOURNEY_COLORS = { 'gui user': 'D94F45', 'developer': '3B7CB8', 'node operator': 'C4912C' };
 
@@ -718,6 +742,7 @@ function renderPipelineRow(item, index, canDrag, canWrite = false) {
     <div id="filter-item-${item.id}"
          data-action-labels="${escapeHtml(JSON.stringify(blockedByLabels))}"
          data-rnd-team="${escapeHtml(rndTeamSlug)}"
+         data-drivers="${escapeHtml(driverSlugs.join(' '))}"
          data-types="${escapeHtml(typeSlugs.join(' '))}"
          data-releases="${escapeHtml(releaseSlugs.join(' '))}">
       <div
@@ -776,7 +801,7 @@ function renderPipelineRow(item, index, canDrag, canWrite = false) {
         <div id="action-${item.id}" class="hidden md:flex items-center gap-1 flex-wrap"></div>
 
         <!-- Driver column (desktop) -->
-        <div class="hidden md:flex items-center flex-wrap gap-1"></div>
+        <div class="hidden md:flex items-center flex-wrap gap-1">${driverHtml}</div>
 
         <div class="flex items-center justify-end">
           <svg id="chevron-${item.id}" class="w-4 h-4 transition-all flex-none" style="color:#808C78;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

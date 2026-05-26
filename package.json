@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Static SPA for the Logos ecosystem journey pipeline.",
   "scripts": {
-    "test": "node --test tests/markdown.test.mjs tests/status.test.mjs tests/sync-labels.test.mjs tests/roadmap.test.mjs tests/render.test.mjs tests/drag-gating.test.mjs tests/body-update.test.mjs tests/config.test.mjs tests/visual-encoding.test.mjs tests/markdown-render.test.mjs",
+    "test": "node --test tests/markdown.test.mjs tests/status.test.mjs tests/sync-labels.test.mjs tests/roadmap.test.mjs tests/render.test.mjs tests/drag-gating.test.mjs tests/body-update.test.mjs tests/config.test.mjs tests/visual-encoding.test.mjs tests/markdown-render.test.mjs tests/drivers.test.mjs",
     "lint": "eslint js/ tests/",
     "serve": "npx serve ."
   },
