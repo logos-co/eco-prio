@@ -620,6 +620,25 @@ export async function ensureLifecycleLabels(owner, repo, pat) {
   ));
 }
 
+// Driver labels are managed independently from the lifecycle: they live on
+// their own session guard so adding/removing a driver never touches
+// status:* / blocked-by:* state, and Fix Labels never sees them.
+const DRIVER_LABEL_COLORS = {
+  'driver:rfp':        '8C6A2E',
+  'driver:quest':      '7A4E73',
+  'driver:sample-app': '5E8C6A',
+};
+const _ensuredDriverRepos = new Set();
+
+export async function ensureDriverLabels(owner, repo, pat) {
+  const key = `${owner}/${repo}`;
+  if (_ensuredDriverRepos.has(key)) return;
+  _ensuredDriverRepos.add(key);
+  await Promise.all(Object.entries(DRIVER_LABEL_COLORS).map(([name, color]) =>
+    createLabel(owner, repo, name, color, pat).catch(() => { /* best effort */ })
+  ));
+}
+
 /**
  * Pure decision function: given an issue's current labels + desired lifecycle
  * labels, return the set of changes to apply. No I/O.

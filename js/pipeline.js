@@ -878,7 +878,7 @@ function renderPipelineRow(item, index, canDrag, canWrite = false) {
         <div id="action-${item.id}" class="hidden md:flex items-center gap-1 flex-wrap"></div>
 
         <!-- Driver column (desktop) -->
-        <div class="hidden md:flex items-center flex-wrap gap-1">${driverHtml}</div>
+        <div id="driver-cell-${item.id}" class="hidden md:flex items-center flex-wrap gap-1">${driverHtml}</div>
 
         <div class="flex items-center justify-end">
           <svg id="chevron-${item.id}" class="w-4 h-4 transition-all flex-none" style="color:#808C78;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

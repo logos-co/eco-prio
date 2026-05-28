@@ -3,7 +3,7 @@
  */
 
 import {
-  addLabels, removeLabel, fetchIssue,
+  addLabels, removeLabel, fetchIssue, ensureDriverLabels,
   updateIssueBody, fetchRef, fetchMilestoneProgress,
 } from './api.js';
 import {
@@ -14,6 +14,7 @@ import {
 } from './markdown.js';
 import { getReadPAT, getWritePAT, hasWritePAT } from './config.js';
 import { teamColor, showToast } from './app.js';
+import { DRIVER_DEFS, DRIVER_SLUGS, renderDriverCell } from './pipeline.js';
 
 // Track open detail panels and their item references
 const openDetails  = new Set();
@@ -139,6 +140,14 @@ function renderDetailShell(item) {
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
             </svg>
             Loading…
+          </div>
+        </div>
+
+        <!-- Drivers -->
+        <div>
+          <h3 class="text-xs font-semibold uppercase tracking-wider mb-2" style="color:#808C78;font-family:Arial,Helvetica,sans-serif;">Drivers</h3>
+          <div id="driver-picker-${item.id}">
+            ${renderDriverPicker(item, issue.labels?.nodes || [], canWrite)}
           </div>
         </div>
 
@@ -783,6 +792,44 @@ function attachWorkflowHandlers(itemId, repoWithOwner, issueNumber) {
 }
 
 // ---------------------------------------------------------------------------
+// Drivers
+// ---------------------------------------------------------------------------
+
+// Set of driver slugs an issue currently carries (filtered through the allowlist).
+function currentDriverSlugs(labels) {
+  const slugs = new Set();
+  for (const l of labels) {
+    if (!l.name?.startsWith('driver:')) continue;
+    const s = l.name.slice('driver:'.length);
+    if (DRIVER_SLUGS.has(s)) slugs.add(s);
+  }
+  return slugs;
+}
+
+function renderDriverPicker(item, labels, canWrite) {
+  const active = currentDriverSlugs(labels);
+  if (!canWrite) {
+    // Read-only: render the chips as they appear in the pipeline column, or
+    // a muted "None" placeholder when no driver is set.
+    const html = renderDriverCell(labels);
+    return html || `<span class="text-xs text-muted italic" style="font-family:Arial,Helvetica,sans-serif;">None</span>`;
+  }
+  // Admin: three always-visible toggle buttons.
+  return `<div class="flex flex-wrap gap-2">${DRIVER_DEFS.map(d => {
+    const isOn = active.has(d.slug);
+    const c = d.color;
+    const bg     = isOn ? `${c}33` : `${c}10`;
+    const border = isOn ? `${c}cc` : `${c}40`;
+    return `<button onclick="window._toggleDriver('${item.id}', '${d.slug}', ${isOn})"
+              class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-all"
+              data-driver-toggle="${d.slug}" data-driver-on="${isOn}"
+              style="border:1px solid ${border};background:${bg};color:${c};font-family:Arial,Helvetica,sans-serif;cursor:pointer;">
+        ${escapeHtml(d.label)}
+      </button>`;
+  }).join('')}</div>`;
+}
+
+// ---------------------------------------------------------------------------
 // Blocked labels
 // ---------------------------------------------------------------------------
 
@@ -920,6 +967,36 @@ export function registerLabelHandlers() {
       showToast('success', `Added label "blocked-by:${teamName}"`);
       window._cancelAddLabel(itemId);
       await refreshBlockedLabels(itemId, owner, repo, issueNumber, pat);
+    } catch (err) {
+      showToast('error', `Failed: ${err.message}`);
+    }
+  };
+
+  // -- Driver: toggle (add or remove) --
+  window._toggleDriver = async (itemId, slug, currentlyOn) => {
+    if (!DRIVER_SLUGS.has(slug)) return;
+
+    const pat = getWritePAT();
+    if (!pat) { showToast('error', 'Switch to edit mode to modify drivers'); return; }
+
+    const row = document.querySelector(`[data-item-id="${itemId}"]`);
+    if (!row) return;
+    const [owner, repo] = (row.dataset.repo || '').split('/');
+    const issueNumber = parseInt(row.dataset.issue || '0', 10);
+    if (!owner || !repo || !issueNumber) return;
+
+    const labelName = `driver:${slug}`;
+    try {
+      // Lazy label creation: idempotent + per-session guarded.
+      await ensureDriverLabels(owner, repo, pat);
+      if (currentlyOn) {
+        await removeLabel(owner, repo, issueNumber, labelName, pat);
+        showToast('success', `Removed driver "${slug}"`);
+      } else {
+        await addLabels(owner, repo, issueNumber, [labelName], pat);
+        showToast('success', `Added driver "${slug}"`);
+      }
+      await refreshDriverPicker(itemId, owner, repo, issueNumber, pat);
     } catch (err) {
       showToast('error', `Failed: ${err.message}`);
     }
@@ -1139,6 +1216,36 @@ async function refreshBlockedLabels(itemId, owner, repo, issueNumber, pat) {
       (canWrite ? renderAddLabelButton(fakeItem) : '');
   } catch (err) {
     console.warn('Failed to refresh labels:', err);
+  }
+}
+
+async function refreshDriverPicker(itemId, owner, repo, issueNumber, pat) {
+  try {
+    const freshIssue = await fetchIssue(owner, repo, issueNumber, pat);
+    const labels = freshIssue.labels || [];
+
+    // 1) Re-render the detail-panel picker.
+    const pickerContainer = document.getElementById(`driver-picker-${itemId}`);
+    if (pickerContainer) {
+      const canWrite = hasWritePAT();
+      const fakeItem = { id: itemId, content: { repository: { nameWithOwner: `${owner}/${repo}` }, number: issueNumber } };
+      pickerContainer.innerHTML = renderDriverPicker(fakeItem, labels, canWrite);
+    }
+
+    // 2) Resync the pipeline row's Driver cell + data-drivers attr so the filter
+    //    stays accurate without a full re-render.
+    const wrapper = document.getElementById(`filter-item-${itemId}`);
+    if (wrapper) {
+      const driverSlugs = labels
+        .filter(l => l.name?.startsWith('driver:'))
+        .map(l => l.name.slice('driver:'.length))
+        .filter(s => DRIVER_SLUGS.has(s));
+      wrapper.dataset.drivers = driverSlugs.join(' ');
+    }
+    const driverCell = document.getElementById(`driver-cell-${itemId}`);
+    if (driverCell) driverCell.innerHTML = renderDriverCell(labels);
+  } catch (err) {
+    console.warn('Failed to refresh driver picker:', err);
   }
 }
 
