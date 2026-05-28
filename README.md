@@ -15,7 +15,8 @@ For Logos R&D Leads.
 5. **Expand a journey**: click any row to open the detail panel. It shows the R&D inputs, doc packet link, documentation tracking issue + PR, and red team tracking issue.
 6. **Enable editing**: click the **Edit** button in the header. Once active, the button shows **Editing** in coral.
 7. **Fill in missing information**: with editing enabled, each section shows an input field. Paste the relevant URL or value and press Enter (or click ✓) to save directly to the GitHub issue.
-8. **Sync labels**: if the ⚠ "Fix Labels" button appears, click it to reconcile the `status:*` / `blocked-by:*` labels with the issue body.
+8. **Tag the driver**: in the detail panel "Drivers" section, toggle one or more buttons (`rfp` / `quest` / `sample-app`) to record *why* this journey is on the priority list. Filter the board to a single driver via the "Driver:" pill row in the header.
+9. **Sync labels**: if the ⚠ "Fix Labels" button appears, click it to reconcile the `status:*` / `blocked-by:*` labels with the issue body.
 
 > **Settings** (gear icon): change the owner, project number, or token at any time.
 

@@ -74,8 +74,8 @@ The refresh button spinner toggles for the duration of the load.
 4. **Closed section** — collapsed by default, items sorted chronologically by `closedAt`.
 
 Each row shows: rank number, journey title, persona type chip, release chip, blocking team
-indicator, status badge, blocked-by column, chevron. Hovering a row highlights it; clicking
-toggles its detail panel (Section H).
+indicator, status badge, blocked-by column, driver chip(s) (see Part III), chevron. Hovering
+a row highlights it; clicking toggles its detail panel (Section H).
 
 **Mismatch detection.** During render, every item is evaluated against `computeStatus` and
 `computeDesiredLabels`. Items whose actual labels diverge from desired are tracked in
@@ -88,11 +88,12 @@ the body is mutated (label fix, inline edit).
 
 ### D. Filter bar
 
-Three single-select rows and one multi-select row, rendered above the pipeline list.
+Four single-select rows and one multi-select row, rendered above the pipeline list.
 
 | Row | Type | Source labels |
 |---|---|---|
 | Persona | single-select | `gui user`, `developer`, `node operator` |
+| Driver | single-select | `driver:*` labels from the fixed allowlist (see Part III) |
 | Team | single-select | derived from `## R&D - team:` body field + repo team mapping |
 | Blocked by | single-select | `blocked-by:*` labels present on open items |
 | Release | multi-select | labels matching `/^testnet\b/i` |
@@ -106,8 +107,8 @@ Behavior shared across all four rows:
   `applyFilter` function — DOM `display:none`, not removed).
 - Activating any pill in any row disables drag (`applyDragGating`) on all rows; drag
   re-enables when no pill is active.
-- Filter state syncs to the URL as query params (`?persona=`, `?team=`, `?blockedby=`,
-  `?release=slug1,slug2`). Reloading restores state from the URL.
+- Filter state syncs to the URL as query params (`?persona=`, `?driver=`, `?team=`,
+  `?blockedby=`, `?release=slug1,slug2`). Reloading restores state from the URL.
 - Unknown URL slugs are silently ignored on restore.
 - Cross-row semantics: **AND across rows**. Within the multi-select Release row,
   **OR within row** (a journey matches if any of its testnet labels is selected).
@@ -265,6 +266,12 @@ resolve via `fetchMilestoneProgress`, which fetches the parent `index.md` from
 `blocked-by:*` labels (lifecycle + external) with × buttons, and an "+ add blocker"
 affordance. Adding fires `addLabels`, removing fires `removeLabel`. Both refresh the
 panel and re-evaluate mismatch state.
+
+**Drivers section.** A "Drivers" section sits between the workflow card and "External
+blockers" (see Part III). In admin mode it shows three always-visible toggle buttons over
+the `DRIVER_DEFS` allowlist; in read-only mode it shows just the chips (or "None"). Toggling
+fires `addLabels` / `removeLabel`, then re-renders both the picker and the pipeline row's
+Driver cell + `data-drivers` attribute so the filter stays accurate without a full reload.
 
 **Expand-all / Collapse-all** opens or closes every visible row's panel in one pass.
 Closed-section panels are not included by default.
@@ -441,3 +448,155 @@ Two layers: `node:test` covers render output and pure helpers (see `tests/render
 - Do not couple the filter to GitHub Projects field state — the source of truth is the issue labels (`/^testnet\b/i`).
 - Do not hard-code a fixed list of releases. The pill row is derived from labels present on open items, so new testnets appear automatically.
 - Do not reintroduce a second release-color table. `RELEASE_PALETTE` at module scope is the sole source for both filter pills and row chips.
+
+---
+
+## Part III — Journey Drivers (retrospective)
+
+> Retrospective specification for the Journey Drivers feature added to the journeys pipeline. The ideation one-pager lives at `docs/ideas/journey-drivers.md`.
+
+### 1. Objective
+
+Make the *why* behind each journey's priority legible on the pipeline board, so prioritization decisions are defensible to ourselves and to R&D leads reading the board.
+
+**Problem.** Before this feature, the pipeline showed *what* a journey was (persona, release) and *where it stood* (status, blocked-by), but not *why it earned its slot in the priority order*. When a lead asked "why is this above that?" the answer lived only in the head of the person who set the order. With multiple drivers (inbound RFPs, internal Quests, Sample App goals) and a growing board, the rationale needed a visible home.
+
+**Target users.** Logos leadership defending the priority order; R&D leads reading the board to understand why their work is being asked for. Internal use only — no external audience.
+
+**Success.** Each journey can be tagged with zero, one, or more drivers from a fixed allowlist. Drivers appear as chips in a dedicated "Driver" column. A single-select filter pill scopes the board to one driver. Tagging is editable in-app from the detail panel (admin mode), with the GitHub label UI as an always-available fallback.
+
+### 2. Commands
+
+Same as the rest of the SPA — see Part II §2. No new commands.
+
+### 3. Project Structure
+
+The feature touches one new repo asset (labels), three existing JS files, one new test file, and the `test` script in `package.json`.
+
+```
+GitHub repo (logos-co/journeys.logos.co)
+  └─ Labels: driver:rfp (8C6A2E), driver:quest (7A4E73), driver:sample-app (5E8C6A)
+            — lazily created by ensureDriverLabels on first toggle per session
+
+js/pipeline.js
+  ├─ Constants            DRIVER_DEFS, DRIVER_SLUG_TO_LABEL, DRIVER_SLUGS, DRIVER_COLOR
+  ├─ Module state         activeDriverFilter (string | null)
+  ├─ Pure helpers         matchesDriverFilter(rowAttr, activeSlug)  — exported, testable
+  │                       renderDriverCell(labels)                   — exported, testable
+  │                       driverSlugsFromLabels(labels)              — internal
+  ├─ renderPipeline()     URL → state restore via DRIVER_SLUGS guard; orphan-filter drop
+  ├─ renderFilterBar()    Renders "Driver:" single-select pill row when any open journey
+  │                       carries a driver
+  ├─ renderPipelineRow()  Adds <div id="driver-cell-${id}"> in the Driver column slot;
+  │                       emits data-drivers="<slug …>" on the filter wrapper
+  ├─ applyFilter()        Calls matchesDriverFilter on each row
+  ├─ syncFiltersToUrl()   Set ?driver=<slug> when active
+  ├─ attachFilterHandlers() Single-select toggle mirroring the persona-row pattern
+  └─ driverPill{Reset,Activate}() Visual states matching the Type pill pair
+
+js/detail.js
+  ├─ renderDriverPicker(item, labels, canWrite) — three always-visible toggle buttons
+  │                       in admin mode; chips (or "None") in read-only mode
+  ├─ "Drivers" section in renderDetailShell, between the workflow card and
+  │                       "External blockers"
+  ├─ window._toggleDriver — ensureDriverLabels → add/remove → toast → refreshDriverPicker
+  └─ refreshDriverPicker  — re-renders the detail picker AND the row's
+                            data-drivers attr + chip cell (via id selector) so the
+                            filter stays accurate without a full re-render
+
+js/api.js
+  └─ ensureDriverLabels(owner, repo, pat) — idempotent, lazy, own _ensuredDriverRepos
+                         session guard. Independent from ensureLifecycleLabels;
+                         drivers are orthogonal to the lifecycle.
+
+tests/drivers.test.mjs (NEW, added to package.json `test` script)
+  └─ 12 tests: DRIVER_DEFS shape, DRIVER_COLOR lookups, renderDriverCell across
+              rfp / multi / empty / unknown / mixed, and matchesDriverFilter
+              across all branches (active / inactive / undefined dataset).
+```
+
+The Driver column landed as the **last** column (after Blocked By, before the drag handle), not between Type and Release as the original ideation suggested. This kept the long Journey title column from being squeezed by an interior insertion.
+
+Final grid template: `1fr 6.5rem 9rem 11rem 8rem 5rem 2rem` (Journey, Type, Release, Status, Blocked-By, Driver, drag-handle) with `gap-1` and a `pl-3` on the Type cell to preserve a wider visual gutter between Journey and Type. Trimming neighbouring column widths and tightening the gap was a coupled change made during T1's eyeball checkpoint to reclaim title space.
+
+### 4. Code Style
+
+Mirrors the persona-type pattern in `js/pipeline.js` (lines 22–31):
+
+- `DRIVER_DEFS = [{ slug, label, color }, …]` at module scope. One entry per driver. Adding a driver is a one-line append plus a label creation in the repo. Both must happen.
+- Slugs are the part after `driver:` (e.g. `rfp`, `quest`, `sample-app`). Labels on GitHub are the full `driver:<slug>` form.
+- Helpers: `DRIVER_SLUG_TO_LABEL`, `DRIVER_SLUGS` (Set), `DRIVER_COLOR(slug)`. Lookup tables built once at module scope.
+- Pure helpers (`renderDriverCell`, `matchesDriverFilter`, `driverSlugsFromLabels`) are top-level functions so tests can import them without a DOM. The filter integration in `applyFilter` is a one-line call to `matchesDriverFilter`.
+- Column header text: **"Driver"** (matches the label namespace).
+- Empty cell: render blank. No "— add driver" hint.
+- Filter pill activation pattern copies `typePillActivate` / `typePillReset` verbatim — same opacity stops (`18`, `33`, `66`, `cc`).
+- Detail-panel picker is **three always-visible toggle buttons**, not a free-form input. Each button's checked state is baked into the inline `onclick` handler (`window._toggleDriver(id, slug, isOn)`); after a successful write, `refreshDriverPicker` re-renders the picker so the next click reads the up-to-date `isOn`.
+- Driver cell carries an `id="driver-cell-${item.id}"` so `refreshDriverPicker` can locate it without depending on the row's child ordering.
+- `ensureDriverLabels` has its own session guard separate from `ensureLifecycleLabels` — driver labels and lifecycle labels are managed independently.
+- No comments unless the *why* is non-obvious.
+
+### 5. Testing Strategy
+
+Two layers: `node:test` covers pure helpers; manual browser smoke covers DOM/event flow. `tests/drivers.test.mjs` is added to `package.json` `test` script (explicit list, no glob).
+
+**Automated coverage** (12 tests in `tests/drivers.test.mjs`):
+
+1. `DRIVER_DEFS` shape and slug list.
+2. `DRIVER_SLUGS` set parity with `DRIVER_DEFS`.
+3. `DRIVER_COLOR` returns the defined hex for each known slug.
+4. `renderDriverCell([{ name: 'driver:rfp' }])` renders a chip with the rfp color and `>rfp<` text.
+5. Two drivers render two chips.
+6. No driver labels renders empty string.
+7. Unknown `driver:foo` is ignored.
+8. Mixed known + unknown renders only the known.
+9. `matchesDriverFilter` returns true when no filter active.
+10. Returns true when the row's `data-drivers` includes the active slug.
+11. Returns false when it does not.
+12. Returns false when the attribute is undefined.
+
+The detail-panel picker is not covered by automated tests; precedent (the existing blocked-by editor) also has no automated tests, and the picker's behavior is exercised in the smoke checklist below.
+
+**Smoke checklist** (`npm run serve`, then `http://localhost:3000`):
+
+1. "Driver:" single-select pill row appears between the Persona and Team rows when any open journey carries a `driver:*` label. One pill per driver present.
+2. "Driver" column header appears as the last column (between "Blocked By" and the drag handle) in both the open and closed pipeline sections.
+3. Click a driver pill → only matching journeys remain; URL gains `?driver=<slug>`.
+4. Click the same pill again → deactivates; URL drops the param; full list returns.
+5. Click a different driver pill → switches selection (single-select).
+6. Combine with a Release or Persona pill → intersection (AND across rows).
+7. With any driver pill active, row drag is disabled.
+8. Reload the page → driver pill restores from the URL.
+9. URL with an unknown driver slug is silently ignored on restore.
+10. In admin mode, open a journey's detail panel → "Drivers" section shows three toggle buttons reflecting current state. Clicking a button fires the label write, toasts on success/failure, updates the button's checked state, and updates the row's column chip immediately (no full reload).
+11. In read-only mode, the "Drivers" section shows just chips (or muted "None"), no buttons. The column chip remains visible.
+12. Closing a journey does not strip `driver:*` labels — proven by code analysis of `planLabelChanges` (`js/api.js:660`), which only touches `status:*`, `blocked-by:*`, `action:*`, and legacy `blocked:*` prefixes.
+13. Fix Labels does not touch `driver:*` labels — same proof as smoke #12.
+
+**Pre-commit gate.** Run `npm test` and `npm run lint`. Both must pass.
+
+### 6. Boundaries
+
+**Always do**
+
+- Keep `DRIVER_DEFS` as the single source of truth for the driver vocabulary, colors, and display labels. Adding a driver requires both: a one-line append to `DRIVER_DEFS` in `pipeline.js` *and* a corresponding label in `DRIVER_LABEL_COLORS` in `js/api.js` (so `ensureDriverLabels` creates it). Out-of-sync state is a bug.
+- Render the driver chip in the dedicated column. No badges in the title row, no per-row tinting, no other surface.
+- Render an empty cell when a journey has no `driver:*` label. Absence is allowed.
+- Treat drivers as orthogonal to the lifecycle state machine: no `status:*` transition reads a `driver:*` label; no `blocked-by:*` derivation depends on drivers.
+- After any in-app driver write, refresh both the detail-panel picker AND the pipeline row's `data-drivers` attr + chip cell, so the filter never lies between writes.
+
+**Ask first**
+
+- Adding a new driver type. The allowlist is intentionally fixed — every addition is a deliberate vocabulary choice.
+- Flipping the filter to multi-select (revisit only if usage proves single-select is too limiting after a month of real use).
+- Adding a body field that links to the driver artifact (RFP brief, Quest doc, Sample App spec). Sensible v2, out of scope for v1.
+- Moving the vocabulary from labels to a GitHub Projects v2 custom field. Revisit only if the allowlist proves too rigid.
+- Promoting drivers to a sort or priority signal (changes the model from informational to gating).
+
+**Never do**
+
+- Do not auto-derive `driver:*` from any other source (body field, status, milestones). Drivers are human editorial judgment.
+- Do not include `driver:*` in the Fix Labels reconciler. There is nothing to reconcile.
+- Do not introduce a third data source. Vocabulary stays in code (`DRIVER_DEFS` + `DRIVER_LABEL_COLORS`) and on labels (the GitHub repo). Not in the issue body, not in Projects v2 fields.
+- Do not show a "— add driver" placeholder in empty cells. Cell silence is intentional.
+- Do not couple the closed-section rendering to drivers — closed journeys render drivers the same way as open ones.
+- Do not introduce a generic in-app label editor as a side effect. The detail-panel driver picker is allowlist-scoped to `DRIVER_DEFS`; it does not accept arbitrary label text. The existing blocked-by editor remains the only free-form label affordance (and is flagged for removal in a separate follow-up).
