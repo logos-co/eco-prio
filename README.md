@@ -2,38 +2,81 @@
 
 Website to track priorities of journeys for Logos Eco Dev, on Logos R&D.
 
-Pre-configured for [logos-co / project 12](https://github.com/orgs/logos-co/projects/12/views/1?layout_template=board).
+A static SPA that displays a prioritized pipeline of Logos ecosystem journeys, sourced from
+GitHub Projects v2. Live at <https://journeys.logos.co>, pre-configured for
+[logos-co / project 12](https://github.com/orgs/logos-co/projects/12/views/1?layout_template=board).
 
-## Usage
+---
 
-For Logos R&D Leads.
+## Routing — load only what your task needs
 
-1. Go to https://journeys.logos.co or [run locally](#run-locally).
-2. Follow instructions to enter GitHub PAT Token.
-3. **Filter by team**: Click on your team in the "Team:" line.
-4. **Filter by who's blocking**: use the "Blocked by" filter bar at the top to show only journeys your team is currently blocking (e.g. `R&D` for all rnd teams, or a specific team like `zones`).
-5. **Expand a journey**: click any row to open the detail panel. It shows the R&D inputs, doc packet link, documentation tracking issue + PR, and red team tracking issue.
-6. **Enable editing**: click the **Edit** button in the header. Once active, the button shows **Editing** in coral.
-7. **Fill in missing information**: with editing enabled, each section shows an input field. Paste the relevant URL or value and press Enter (or click ✓) to save directly to the GitHub issue.
-8. **Tag the driver**: in the detail panel "Drivers" section, toggle one or more buttons (`rfp` / `quest` / `sample-app`) to record *why* this journey is on the priority list. Filter the board to a single driver via the "Driver:" pill row in the header.
-9. **Sync labels**: if the ⚠ "Fix Labels" button appears, click it to reconcile the `status:*` / `blocked-by:*` labels with the issue body.
+This README is a router. **Do not read the whole repo.** Pick the one row that matches your
+task and open **only** that file.
 
-> **Settings** (gear icon): change the owner, project number, or token at any time.
+| Your task                                        | Open only this                       |
+|--------------------------------------------------|--------------------------------------|
+| Create / update journey issues with `gh`         | [USAGE.md](USAGE.md)                 |
+| Run the app on your machine and use it           | [BUILD.md](BUILD.md)                 |
+| Change the app code (tests, specs, structure)    | [CONTRIBUTE.md](CONTRIBUTE.md)       |
 
-### Missing information for R&D Logos Lead
+`USAGE.md` and `CONTRIBUTE.md` both rely on the **journey data model + lifecycle** described
+just below — they tell you when you need it. If you only want to run the app ([BUILD.md](BUILD.md)),
+you can skip it.
 
-See [How a journey progresses](#how-a-journey-progresses) to understand the full flow.
-As a first step, Logos R&D Leads need to:
+The behavior spec is [SPEC.md](SPEC.md) (per-feature, source of truth for *what* the app does).
+Architecture rationale is [ADR.md](ADR.md). `CONTRIBUTE.md` routes to both.
 
-1. Verify their journeys are correct, with the right target release.
-2. Ensure there are no missing journeys. Click "+ New Journey" to add one in **Editing** mode.
-3. Expand a journey (start from the top).
-   1. If the software is already delivered, jump to "Doc Packet" and fill in the GitHub issue template.
-   2. For software yet to be done, start with the "R&D" section — enter a link to the milestone, then fill in the estimated date once known.
+> **LLM agents:** this file is the entry point. Read the routing table, then load the single
+> persona file that matches the request — plus the **Concepts** section below only if that file
+> says to. Loading all of them defeats the purpose.
 
-## How a journey progresses
+---
 
-Each journey has a single `status:<phase>` label and one or more `blocked-by:<team>` labels — both auto-managed by the app based on what's in the issue body. The whole lifecycle is one linear sequence:
+## Concepts — journey data model and lifecycle
+
+Shared vocabulary used by [USAGE.md](USAGE.md) and [CONTRIBUTE.md](CONTRIBUTE.md). Skip if you
+only want to run the app.
+
+### What a journey is
+
+Journeys are GitHub issues in the connected project board (`logos-co/journeys.logos.co`,
+project #12). Each issue carries:
+
+- **Journey type label** (exactly one): `gui user`, `developer`, or `node operator`
+- **Target release label** (one): `testnet v0.1`, `testnet v0.2`, … (matched by `/^testnet\b/i`)
+- **Lifecycle status label** (exactly one): `status:<phase>` — auto-managed by the app
+- **Blocking labels** (one or more): `blocked-by:<team>` — auto-managed from the lifecycle,
+  plus any manually-added external blockers
+- **Driver labels** (zero or more): `driver:<name>` from a fixed allowlist (`rfp`, `quest`,
+  `sample-app`) — informational only, they record *why* a journey earned its slot and gate nothing
+- A **structured issue body** (sections drive the lifecycle):
+
+  ```markdown
+  ## R&D
+  - team: <name>
+  - milestone: <url>      # one line per milestone, multiple allowed
+  - date: <DDMmmYY>
+
+  ## Doc Packet
+  - link: <url>           # logos-docs issue from the doc-packet template; presence = delivered
+
+  ## Documentation
+  - tracking: <url>       # logos-docs issue tracking doc progress
+  - pr: <url>             # the doc PR; added MANUALLY by docs as "ready for review"
+
+  ## Red Team
+  - tracking: <url>       # red team tracking issue
+  ```
+
+R&D team granularity — `<team>` is one of:
+`anon-comms`, `messaging`, `core`, `storage`, `blockchain`, `zones`, `smart-contract`, `devkit`.
+If no team is assigned yet, the blocking label is `blocked-by:rnd`.
+
+### The lifecycle
+
+One `status:<phase>` label per journey, one or more `blocked-by:<team>` labels. Both are
+**auto-managed by the app** based on what's in the issue body. The whole lifecycle is one
+linear sequence:
 
 ```mermaid
 flowchart TD
@@ -67,56 +110,42 @@ flowchart TD
     s7 -->|red team tracking closed| fin([completed])
 ```
 
-| `status:*`                      | Next step (who does it)                                                                     | Blocked by                  |
-|---------------------------------|---------------------------------------------------------------------------------------------|-----------------------------|
-| `status:confirm-roadmap`        | **R&D lead**: set `- team:` and a `- milestone:` URL in the issue body                      | `blocked-by:rnd` (or team)  |
-| `status:confirm-date`           | **R&D lead**: add the estimated delivery `- date:` (DDMmmYY)                                | `blocked-by:rnd-<team>`     |
-| `status:rnd-in-progress`        | **R&D**: deliver the roadmap milestones (auto-advances when all are ticked in [roadmap.logos.co](https://roadmap.logos.co)) | `blocked-by:rnd-<team>`     |
-| `status:rnd-overdue`            | **R&D**: deliver the milestones — target date has passed, update the date or close them    | `blocked-by:rnd-<team>`     |
-| `status:waiting-for-doc-packet` | **R&D**: open a [doc packet issue](https://github.com/logos-co/logos-docs/issues/new?template=doc-packet.yml), fill it in, paste its URL into `## Doc Packet - link:` | `blocked-by:rnd-<team>` |
-| `status:doc-packet-delivered`   | **Docs**: open a tracking issue (paste into `## Documentation - tracking:`), write the doc, and once the doc PR is ready for review paste its URL into `## Documentation - pr:` | `blocked-by:docs`           |
-| `status:doc-ready-for-review`   | **R&D and Red Team**: review the doc PR. **Docs**: merge the PR once both have approved     | `blocked-by:red-team` + `blocked-by:rnd-<team>` |
-| `status:doc-merged`             | **Red Team**: finish dogfooding, close `## Red Team - tracking:` when done                  | `blocked-by:red-team`       |
-| `status:completed`              | Nothing — journey is done                                                                   | —                           |
+| `status:*` label                | Next step (who does it) — body change that advances the phase                               | Auto-derived `blocked-by:*`                      |
+|---------------------------------|---------------------------------------------------------------------------------------------|-------------------------------------------------|
+| `status:confirm-roadmap`        | **R&D lead**: set `- team:` and a `- milestone:` URL                                        | `blocked-by:rnd` (or `rnd-<team>`)              |
+| `status:confirm-date`           | **R&D lead**: add `- date:` (DDMmmYY)                                                       | `blocked-by:rnd-<team>`                          |
+| `status:rnd-in-progress`        | **R&D**: deliver the milestones (auto-advances when all are ticked in [roadmap.logos.co](https://roadmap.logos.co), source `logos-co/roadmap`) | `blocked-by:rnd-<team>` |
+| `status:rnd-overdue`            | **R&D**: deliver the milestones — target date passed; update the date or close them         | `blocked-by:rnd-<team>`                          |
+| `status:waiting-for-doc-packet` | **R&D**: file a [doc packet issue](https://github.com/logos-co/logos-docs/issues/new?template=doc-packet.yml), paste URL into `## Doc Packet - link:` | `blocked-by:rnd-<team>` |
+| `status:doc-packet-delivered`   | **Docs**: open tracking issue (`## Documentation - tracking:`), write the doc, and when the doc PR is ready paste its URL into `## Documentation - pr:` | `blocked-by:docs` |
+| `status:doc-ready-for-review`   | **R&D and Red Team**: review the doc PR. **Docs**: merge once both approve                  | `blocked-by:red-team` + `blocked-by:rnd-<team>` |
+| `status:doc-merged`             | **Red Team**: finish dogfooding, close `## Red Team - tracking:` when done                  | `blocked-by:red-team`                            |
+| `status:completed`              | Nothing — journey is done                                                                    | —                                               |
 
-The doc PR URL (`## Documentation - pr:`) is added **manually by the docs team** as an explicit "ready for review" signal — there is no auto-discovery.
+**Precedence rule:** when `## Documentation - pr:` is set, the status advances to
+`doc-ready-for-review` / `doc-merged` / `completed` *regardless* of the R&D body fields.
+Upstream R&D checks only gate the pre-doc-packet phases. (Regression #31.)
 
-R&D team granularity: `<team>` is one of `anon-comms`, `messaging`, `core`, `storage`, `blockchain`, `zones`, `smart-contract`, `devkit`.
+The doc PR URL is added **manually by the docs team** as an explicit "ready for review"
+signal — there is no auto-discovery. External blockers (`blocked-by:legal`,
+`blocked-by:security`, …) can be added manually; they coexist with the auto-managed labels and
+don't affect the flow. Milestone completion is fetched at runtime from `logos-co/roadmap` via
+the GitHub Contents API; overdue detection parses `- date:` as `DDMmmYY`.
 
-### The hand-offs
+Label drift (e.g. after body edits) is detected in-app — the ⚠ **Fix Labels** button in the
+header reconciles every issue's `status:*` / `blocked-by:*` labels in one pass, and migrates
+legacy `action:*` and `blocked:<team>` labels.
 
-1. **R&D** fills in their team, a roadmap milestone link, and an estimated date. When all milestones are closed (checked against the `logos-co/roadmap` repo), the phase auto-advances to `waiting-for-doc-packet`. R&D then [opens an issue using the doc packet template](https://github.com/logos-co/logos-docs/issues/new?template=doc-packet.yml), fills it in (including appointing a Subject-Matter Expert from their team), and pastes the issue URL into the `- link:` field of the `## Doc Packet` section. That flip (`status:doc-packet-delivered`) hands off to Docs.
-2. **Docs** opens a tracking issue in `logos-co/logos-docs` (pasted into `## Documentation - tracking:`) and begins writing. When the doc PR is ready for review, Docs **manually** pastes the PR URL into `## Documentation - pr:` — this is an explicit "ready for review" signal (no auto-discovery), which advances the journey to `doc-ready-for-review`. Red Team and the R&D SME review on that PR; once approved, Docs merges it → `doc-merged`.
-3. **Red Team** dogfoods the journey and reviews the doc PR simultaneously. Their tracking issue lives in `## Red Team - tracking:`. Closing that issue completes the journey → `status:completed`. If no red team tracking is provided, the journey is considered complete once the doc PR is merged.
+### Related repos
 
-External blockers (`blocked-by:legal`, `blocked-by:security`, etc.) can be added manually in the detail panel; they coexist with the lifecycle `blocked-by:*` labels and don't affect the auto-managed flow.
+- `logos-co/journeys.logos.co` — journey issues live here
+- `logos-co/logos-docs` — documentation, linked from the `## Documentation` section
+- `logos-co/roadmap` — milestone source of truth for auto-advance
+- `logos-blockchain/logos-execution-zone` — LEZ team issues
+- `logos-co/ecosystem` — red team tracking issues (historical; may move)
 
-The app keeps these labels in sync automatically. A ⚠ "Fix Labels" button in the header appears when any issue's labels drift from the computed state; clicking it reconciles everything in one pass (also migrates legacy `action:*` and `blocked:<team>` labels).
-
-## Run locally
-
-```sh
-npx serve .
-```
-
-Then open http://localhost:3000.
-
-> The app uses ES modules and must be served over HTTP; opening `index.html` directly as a `file://` URL will not work.
-
-## Run tests
-
-```sh
-npm test
-```
-
-Uses the built-in `node:test` runner — no dependencies. Covers issue-body parsing, lifecycle status computation, and label reconciliation. CI runs the same command on every push and PR.
+---
 
 ## Licence
 
 Licensed under either of [MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE) at your option.
-
-## Deploy
-
-Pushes to `main`/`master` auto-deploy via GitHub Actions → GitHub Pages.
-
-Enable Pages in the repo settings under **Settings → Pages → Source: GitHub Actions** before the first deploy.
