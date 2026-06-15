@@ -197,7 +197,7 @@ export function renderPipeline(container, items, projectTitle, projectId) {
         <div>
           <h1 class="text-2xl font-bold text-forest" style="font-family:'Times New Roman',Times,serif;">${escapeHtml(projectTitle || 'Priority Pipeline')}</h1>
           <p class="text-sm text-muted mt-0.5" style="font-family:Arial,Helvetica,sans-serif;">
-            ${openItems.length} open journey${openItems.length !== 1 ? 's' : ''}
+            <span id="filter-count">${openItems.length} open journey${openItems.length !== 1 ? 's' : ''}</span>
             ${canWrite ? `<span id="drag-hint" class="ml-2 text-xs text-coral font-medium${canDrag ? '' : ' hidden'}">· Drag rows to reorder</span>` : ''}
           </p>
         </div>
@@ -535,11 +535,15 @@ function applyFilter(allItems) {
     applyDragGating(el, { canWrite, anyFilter });
   });
 
+  const countEl = document.getElementById('filter-count');
+  const total = allItems.length;
+
   if (!anyFilter) {
     for (const item of allItems) {
       document.getElementById(`filter-item-${item.id}`)?.classList.remove('hidden');
     }
     if (noMatch) noMatch.classList.add('hidden');
+    if (countEl) countEl.textContent = `${total} open journey${total !== 1 ? 's' : ''}`;
     return;
   }
 
@@ -586,6 +590,7 @@ function applyFilter(allItems) {
     if (matches) visible++;
   }
   if (noMatch) noMatch.classList.toggle('hidden', visible > 0);
+  if (countEl) countEl.textContent = `${visible} of ${total} open journey${visible !== 1 ? 's' : ''}`;
 }
 
 function syncFiltersToUrl() {
