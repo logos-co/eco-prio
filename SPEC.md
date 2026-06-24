@@ -77,6 +77,10 @@ Each row shows: rank number, journey title, persona type chip, release chip, blo
 indicator, status badge, blocked-by column, driver chip(s) (see Part III), chevron. Hovering
 a row highlights it; clicking toggles its detail panel (Section H).
 
+A green **Docs ↗** link renders next to the title iff the item's `## Documentation -
+published:` field is set, linking directly to that URL. No status/label gating — presence of
+the field is the sole condition.
+
 **Mismatch detection.** During render, every item is evaluated against `computeStatus` and
 `computeDesiredLabels`. Items whose actual labels diverge from desired are tracked in
 `_mismatchedItems` and surface via the Fix Labels button in the header. A
@@ -140,7 +144,9 @@ sync-labels reconciliation). Re-stated here for completeness:
 - `extractRnD(body)` → `{ team, milestones: string[], date }`. Multiple
   `- milestone:` lines are all captured.
 - `extractDocPacket(body)` → URL string or `null`.
-- `extractDocumentation(body)` → `{ tracking, pr }`.
+- `extractDocumentation(body)` → `{ tracking, pr, published }`. `published` is the live
+  `docs.logos.co` page URL, set manually; it is informational only and never feeds
+  `computeStatus` or label reconciliation.
 - `extractRedTeam(body)` → `{ tracking }`.
 - `extractDescription(body)` → text before the first `## R&D`/`## Doc Packet`/
   `## Documentation`/`## Red Team` heading.
@@ -242,8 +248,10 @@ inside each section start as "Loading…" and resolve asynchronously via `fetchR
 - **Doc Packet**: single URL input (`setDocPacketLink`). A warning badge surfaces if the
   doc packet is delivered (`status >= doc-packet-delivered`) but no link is set yet,
   i.e. the precedence-bypass case.
-- **Documentation**: two URL inputs (`tracking`, `pr`). The `pr:` field is the explicit
-  hand-off signal — adding it advances status to `doc-ready-for-review`.
+- **Documentation**: three URL inputs (`tracking`, `pr`, `published`). The `pr:` field is
+  the explicit hand-off signal — adding it advances status to `doc-ready-for-review`. The
+  `published:` field holds the live `docs.logos.co` page URL; it drives the row-level Docs
+  link (Section C) but has no effect on status or labels.
 - **Red Team**: single URL input (`setRedTeamTracking`).
 
 All inputs:

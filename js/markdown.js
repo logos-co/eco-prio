@@ -144,7 +144,12 @@ export function extractDocumentation(body) {
   const section = extractSection(body, 'Documentation');
   const trackingM = section.match(/^-[ \t]+tracking:[ \t]*(\S+)/m);
   const prM = section.match(/^-[ \t]+pr:[ \t]*(\S+)/m);
-  return { tracking: trackingM ? trackingM[1] : null, pr: prM ? prM[1] : null };
+  const publishedM = section.match(/^-[ \t]+published:[ \t]*(\S+)/m);
+  return {
+    tracking:  trackingM  ? trackingM[1]  : null,
+    pr:        prM        ? prM[1]        : null,
+    published: publishedM ? publishedM[1] : null,
+  };
 }
 
 /** Parse ## Red Team section → { tracking } */
@@ -356,6 +361,11 @@ export function setDocPr(body, pr) {
   return upsertSectionField(body, 'Documentation', 'pr', pr);
 }
 
+/** Update ## Documentation published field. */
+export function setDocPublished(body, published) {
+  return upsertSectionField(body, 'Documentation', 'published', published);
+}
+
 /** Update ## Red Team tracking field. */
 export function setRedTeamTracking(body, link) {
   return upsertSectionField(body, 'Red Team', 'tracking', link);
@@ -374,6 +384,7 @@ export function newIssueBody(team = '') {
 ## Documentation
 - tracking:${' '}
 - pr:${' '}
+- published:${' '}
 
 ## Red Team
 - tracking:${' '}

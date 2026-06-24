@@ -813,12 +813,12 @@ function renderPipelineRow(item, index, canDrag, canWrite = false) {
              </span>`;
   };
 
+  const publishedDocUrl = parsedDocs.published;
+
   const metaLabelsHtml = typeLabels.map(labelPill).join('');
   const releaseHtml    = releaseLabels.length
     ? releaseLabels.map(labelPill).join(' ')
     : `<span class="text-xs italic" style="color:#808C78;font-family:Arial,Helvetica,sans-serif;">—</span>`;
-
-  const docUrl = parsedDocs.pr;
 
   return `
     <div id="filter-item-${item.id}"
@@ -852,10 +852,10 @@ function renderPipelineRow(item, index, canDrag, canWrite = false) {
                  class="text-xs font-normal transition-colors" style="color:#808C78;font-family:Arial,Helvetica,sans-serif;text-decoration:none;"
                  onmouseover="this.style.color='#E46962'" onmouseout="this.style.color='#808C78'">#${issue.number}</a>
             </span>
-            ${docUrl ? `
-              <a href="${escapeHtml(docUrl)}" target="_blank" rel="noopener"
+            ${publishedDocUrl ? `
+              <a href="${escapeHtml(publishedDocUrl)}" target="_blank" rel="noopener"
                  onclick="event.stopPropagation()"
-                 title="Open documentation"
+                 title="Open published documentation"
                  class="flex-none text-xs px-1.5 py-0.5 rounded transition-colors self-center"
                  style="border:1px solid rgba(106,174,123,0.45);color:#6AAE7B;font-family:Arial,Helvetica,sans-serif;"
                  onmouseover="this.style.borderColor='rgba(106,174,123,0.8)';this.style.background='rgba(106,174,123,0.1)'"

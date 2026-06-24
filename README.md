@@ -63,6 +63,7 @@ project #12). Each issue carries:
   ## Documentation
   - tracking: <url>       # logos-docs issue tracking doc progress
   - pr: <url>             # the doc PR; added MANUALLY by docs as "ready for review"
+  - published: <url>      # the live docs.logos.co page; set MANUALLY once published
 
   ## Red Team
   - tracking: <url>       # red team tracking issue

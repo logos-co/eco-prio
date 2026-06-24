@@ -87,8 +87,21 @@ test('extractDocumentation: tracking and pr both present', () => {
 - tracking: https://github.com/logos-co/logos-docs/issues/1
 - pr: https://github.com/logos-co/logos-docs/pull/2`;
   assert.deepEqual(extractDocumentation(body), {
-    tracking: 'https://github.com/logos-co/logos-docs/issues/1',
-    pr:       'https://github.com/logos-co/logos-docs/pull/2',
+    tracking:  'https://github.com/logos-co/logos-docs/issues/1',
+    pr:        'https://github.com/logos-co/logos-docs/pull/2',
+    published: null,
+  });
+});
+
+test('extractDocumentation: published page URL captured', () => {
+  const body = `## Documentation
+- tracking: https://github.com/logos-co/logos-docs/issues/1
+- pr: https://github.com/logos-co/logos-docs/pull/2
+- published: https://docs.logos.co/connect/anoncomms`;
+  assert.deepEqual(extractDocumentation(body), {
+    tracking:  'https://github.com/logos-co/logos-docs/issues/1',
+    pr:        'https://github.com/logos-co/logos-docs/pull/2',
+    published: 'https://docs.logos.co/connect/anoncomms',
   });
 });
 
@@ -97,16 +110,17 @@ test('extractDocumentation: only tracking set', () => {
 - tracking: https://github.com/logos-co/logos-docs/issues/1
 - pr:`;
   assert.deepEqual(extractDocumentation(body), {
-    tracking: 'https://github.com/logos-co/logos-docs/issues/1',
-    pr:       null,
+    tracking:  'https://github.com/logos-co/logos-docs/issues/1',
+    pr:        null,
+    published: null,
   });
 });
 
-test('extractDocumentation: neither set returns both null', () => {
+test('extractDocumentation: neither set returns all null', () => {
   const body = `## Documentation
 - tracking:
 - pr:`;
-  assert.deepEqual(extractDocumentation(body), { tracking: null, pr: null });
+  assert.deepEqual(extractDocumentation(body), { tracking: null, pr: null, published: null });
 });
 
 test('extractDocumentation: empty ## Documentation section returns nulls', () => {
@@ -114,7 +128,7 @@ test('extractDocumentation: empty ## Documentation section returns nulls', () =>
 
 ## Red Team
 - tracking:`;
-  assert.deepEqual(extractDocumentation(body), { tracking: null, pr: null });
+  assert.deepEqual(extractDocumentation(body), { tracking: null, pr: null, published: null });
 });
 
 // ─── extractRedTeam ───────────────────────────────────────────────────────────

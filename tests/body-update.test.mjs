@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 import {
   setRnDField, setRnDMilestones,
-  setDocPacketLink, setDocTracking, setDocPr,
+  setDocPacketLink, setDocTracking, setDocPr, setDocPublished,
   setRedTeamTracking,
   newIssueBody,
   extractRnD, extractDocPacket, extractDocumentation, extractRedTeam,
@@ -138,6 +138,21 @@ test('setDocPr: clearing leaves tracking intact', () => {
   assert.equal(extractDocumentation(updated).pr, null);
 });
 
+test('setDocPublished: appends the field to a legacy section without it', () => {
+  const body = '## Documentation\n- tracking:\n- pr:\n';
+  const updated = setDocPublished(body, 'https://docs.logos.co/connect/anoncomms');
+  assert.equal(extractDocumentation(updated).published, 'https://docs.logos.co/connect/anoncomms');
+});
+
+test('setDocPublished: clearing leaves pr and tracking intact', () => {
+  const body = '## Documentation\n- tracking: https://github.com/logos-co/logos-docs/issues/1\n- pr: https://github.com/logos-co/logos-docs/pull/9\n- published: https://docs.logos.co/x\n';
+  const updated = setDocPublished(body, '');
+  const docs = extractDocumentation(updated);
+  assert.equal(docs.tracking, 'https://github.com/logos-co/logos-docs/issues/1');
+  assert.equal(docs.pr, 'https://github.com/logos-co/logos-docs/pull/9');
+  assert.equal(docs.published, null);
+});
+
 // ─── setRedTeamTracking ──────────────────────────────────────────────────────
 
 test('setRedTeamTracking: writes URL in existing section', () => {
@@ -168,7 +183,7 @@ test('newIssueBody: all fields parse as null/empty when no team passed', () => {
   assert.deepEqual(rnd.milestones, []);
   assert.equal(rnd.date, null);
   assert.equal(extractDocPacket(body), null);
-  assert.deepEqual(extractDocumentation(body), { tracking: null, pr: null });
+  assert.deepEqual(extractDocumentation(body), { tracking: null, pr: null, published: null });
   assert.deepEqual(extractRedTeam(body), { tracking: null });
 });
 
@@ -187,6 +202,7 @@ test('roundtrip: write all fields via setters, read back with extractors', () =>
   body = setDocPacketLink(body, 'https://github.com/logos-co/logos-docs/issues/1');
   body = setDocTracking(body, 'https://github.com/logos-co/logos-docs/issues/2');
   body = setDocPr(body, 'https://github.com/logos-co/logos-docs/pull/3');
+  body = setDocPublished(body, 'https://docs.logos.co/connect/anoncomms');
   body = setRedTeamTracking(body, 'https://github.com/logos-co/ecosystem/issues/5');
 
   const rnd = extractRnD(body);
@@ -195,8 +211,9 @@ test('roundtrip: write all fields via setters, read back with extractors', () =>
   assert.equal(rnd.date, '15Mar26');
   assert.equal(extractDocPacket(body), 'https://github.com/logos-co/logos-docs/issues/1');
   assert.deepEqual(extractDocumentation(body), {
-    tracking: 'https://github.com/logos-co/logos-docs/issues/2',
-    pr:       'https://github.com/logos-co/logos-docs/pull/3',
+    tracking:  'https://github.com/logos-co/logos-docs/issues/2',
+    pr:        'https://github.com/logos-co/logos-docs/pull/3',
+    published: 'https://docs.logos.co/connect/anoncomms',
   });
   assert.deepEqual(extractRedTeam(body), { tracking: 'https://github.com/logos-co/ecosystem/issues/5' });
 });
